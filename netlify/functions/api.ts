@@ -8,10 +8,7 @@ const app = express();
 app.use(express.json({ limit: '15mb' }));
 
 const FIREBASE_PROJECT_ID = 'gen-lang-client-0437042384';
-// Firebase Web API keys are identifiers, not service-account secrets. Keep this
-// value aligned with firebase-applet-config.json so a stale Netlify env var
-// cannot make valid client ID tokens look invalid.
-const FIREBASE_WEB_API_KEY = 'AIzaSyBRlQw7fvhjP8Wds2htBRT38hW0bUsGhU';
+const FIREBASE_WEB_API_KEY = 'AIzaSyBRlQw7fvhjP8wXds2htBRT38hW0bUsGhU';
 
 let firebaseAdminReady = false;
 try {
@@ -51,8 +48,7 @@ async function requireFirebaseUser(req: AuthedRequest, res: Response, next: Next
   if (!token) return res.status(401).json({ success: false, error: 'Authentication required.' });
 
   // Validate against the exact Firebase project used by the browser first.
-  // This avoids rejecting a valid client ID token because Netlify has stale or
-  // mismatched Admin service-account environment variables.
+  // This prevents stale Netlify Admin credentials from rejecting valid ID tokens.
   try {
     const firebaseUser = await verifyWithFirebaseWebApi(token);
     if (firebaseUser) {
@@ -63,7 +59,7 @@ async function requireFirebaseUser(req: AuthedRequest, res: Response, next: Next
     console.error('Firebase Web API token validation failed:', error);
   }
 
-  // Admin verification remains as a secondary path for environments where the
+  // Admin verification remains a secondary path for environments where the
   // Web API is temporarily unavailable.
   if (firebaseAdminReady) {
     try {
