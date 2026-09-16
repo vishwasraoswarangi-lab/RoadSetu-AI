@@ -1,4 +1,4 @@
-name: RoadSetu production validation
+name: RoadSetu one-time server repair
 
 on:
   push:
@@ -7,22 +7,146 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  validate:
+  repair:
+    if: ${{ !contains(github.event.head_commit.message, '[server-repaired]') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: production-hardening
+          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - name: Install
-        run: npm install --no-audit --no-fund
-      - name: Typecheck
-        run: npm run lint
-      - name: Build
-        run: npm run build
+      - name: Repair server and validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('.')
+          server_path = root / 'server.ts'
+          s = server_path.read_text()
+
+          admin_imports = """import { getApps, initializeApp, cert, applicationDefault } from 'firebase-admin/app';
+          import { getAuth as getAdminAuth } from 'firebase-admin/auth';
+          import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';"""
+          if 'firebase-admin/auth' not in s:
+              s = s.replace("import dotenv from 'dotenv';", "import dotenv from 'dotenv';\n" + admin_imports, 1)
+
+          marker = "app.use(express.json({ limit: '15mb' }));"
+          if 'PRODUCTION_FIREBASE_AUTH_MIDDLEWARE' not in s:
+              block = r'''\n// PRODUCTION_FIREBASE_AUTH_MIDDLEWARE
+          let firebaseAdminReady = false;
+          try {
+            if (!getApps().length) {
+              const projectId = process.env.FIREBASE_PROJECT_ID;
+              const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+              const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+              if (projectId && clientEmail && privateKey) initializeApp({ credential: cert({ projectId, clientEmail, privateKey }) });
+              else initializeApp({ credential: applicationDefault() });
+            }
+            firebaseAdminReady = true;
+          } catch (error) { console.error('Firebase Admin initialization failed:', error); }
+
+          async function requireFirebaseUser(req: Request, res: Response, next: NextFunction) {
+            if (!firebaseAdminReady) return res.status(503).json({ success: false, error: 'Server authentication is not configured.' });
+            const header = req.headers.authorization || '';
+            if (!header.startsWith('Bearer ')) return res.status(401).json({ success: false, error: 'Authentication required.' });
+            try {
+              (req as any).firebaseUser = await getAdminAuth().verifyIdToken(header.slice(7), true);
+              next();
+            } catch { return res.status(401).json({ success: false, error: 'Invalid or expired Firebase session.' }); }
+          }
+
+          async function requireAuthority(req: Request, res: Response, next: NextFunction) {
+            const uid = (req as any).firebaseUser?.uid;
+            if (!uid) return res.status(401).json({ success: false, error: 'Authentication required.' });
+            try {
+              const snap = await getAdminFirestore().collection('users').doc(uid).get();
+              const role = String(snap.data()?.role || 'citizen').toLowerCase();
+              if (!['authority', 'municipal_officer', 'admin'].includes(role)) return res.status(403).json({ success: false, error: 'Authority access required.' });
+              next();
+            } catch { return res.status(403).json({ success: false, error: 'Unable to verify authority permissions.' }); }
+          }
+
+          app.use(['/api/analyze-defect', '/api/verify-repair'], requireFirebaseUser);
+          app.use('/api/authority', requireFirebaseUser, requireAuthority);
+          '''
+              block = block.replace('          ', '', 1)
+              s = s.replace(marker, marker + block, 1)
+
+          # Remove the old client-controlled requireAuthority middleware, leaving the new token-based one.
+          matches = list(re.finditer(r'function requireAuthority\s*\(', s))
+          if len(matches) > 1:
+              start = matches[1].start()
+              end = s.find('// ========================================================', start)
+              if end > start:
+                  s = s[:start] + s[end:]
+
+          # Remove the obsolete demo auth-profile route if present.
+          route_start = s.find("app.post('/api/auth/profile'")
+          if route_start >= 0:
+              next_route = s.find('/**\n * Authority:', route_start)
+              if next_route > route_start:
+                  s = s[:route_start] + s[next_route:]
+
+          s = s.replace('const PORT = 3000;', 'const PORT = Number(process.env.PORT || 3000);')
+          if 'export { app };' not in s:
+              s = s.replace('startServer();', "if (!process.env.NETLIFY) startServer();\n\nexport { app };")
+          server_path.write_text(s)
+
+          api = root / 'src/lib/apiClient.ts'
+          if not api.exists():
+              api.write_text("""import { getCurrentIdToken } from './firebase';
+
+          export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+            const token = await getCurrentIdToken();
+            const headers = new Headers(init.headers || {});
+            if (token) headers.set('Authorization', `Bearer ${token}`);
+            if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+            return fetch(input, { ...init, headers });
+          }
+          """.replace('          ', '', 1))
+
+          nf = root / 'netlify/functions/api.ts'
+          nf.parent.mkdir(parents=True, exist_ok=True)
+          nf.write_text("import serverless from 'serverless-http';\nimport { app } from '../../server';\nexport const handler = serverless(app);\n")
+
+          (root / 'netlify.toml').write_text('''[build]
+            command = "npm run build"
+            publish = "dist"
+
+          [functions]
+            directory = "netlify/functions"
+            node_bundler = "esbuild"
+            external_node_modules = ["express", "firebase-admin", "serverless-http"]
+
+          [[redirects]]
+            from = "/api/*"
+            to = "/.netlify/functions/api/:splat"
+            status = 200
+            force = true
+
+          [[redirects]]
+            from = "/*"
+            to = "/index.html"
+            status = 200
+          '''.replace('            ', '  '))
+          PY
+
+          npm install --no-audit --no-fund
+          npm run lint
+          npm run build
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: repair production server auth [server-repaired]'
+          git push origin production-hardening
