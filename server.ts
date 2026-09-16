@@ -102,6 +102,33 @@ async function resolveImage(input: string | undefined | null, defaultMime = 'ima
   return clean.length > 30 ? { mimeType: defaultMime, data: clean } : null;
 }
 
+const DEFECT_TYPES = ['pothole', 'road_crack', 'surface_damage', 'drainage_failure', 'debris_or_obstruction', 'road_marking_damage', 'other_road_defect', 'no_road_defect'] as const;
+const SEVERITIES = ['Critical', 'High', 'Medium', 'Low'] as const;
+function parseAiJson(text: string) {
+  const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start === -1 || end <= start) throw new Error('AI returned an invalid validation response.');
+  return JSON.parse(cleaned.slice(start, end + 1));
+}
+function normalizeDefectResult(raw: any) {
+  const defectType = DEFECT_TYPES.includes(raw?.defectType) ? raw.defectType : 'no_road_defect';
+  const confidence = Number(raw?.confidence);
+  const hazardScore = Number(raw?.hazardScore);
+  const estimatedRepairDays = Number(raw?.estimatedRepairDays);
+  return {
+    defectDetected: raw?.defectDetected === true && defectType !== 'no_road_defect',
+    defectType,
+    severity: SEVERITIES.includes(raw?.severity) ? raw.severity : 'Medium',
+    hazardScore: Number.isFinite(hazardScore) ? Math.max(0, Math.min(100, Math.round(hazardScore))) : 0,
+    confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+    aiSummary: typeof raw?.aiSummary === 'string' ? raw.aiSummary.trim().slice(0, 1000) : '',
+    recommendedAction: typeof raw?.recommendedAction === 'string' ? raw.recommendedAction.trim().slice(0, 1000) : '',
+    estimatedRepairDays: Number.isFinite(estimatedRepairDays) ? Math.max(0, Math.min(365, Math.round(estimatedRepairDays))) : 0,
+    suggestedDepartment: typeof raw?.suggestedDepartment === 'string' ? raw.suggestedDepartment.trim().slice(0, 200) : '',
+  };
+}
+
 app.post('/api/analyze-defect', requireFirebaseUser, async (req: AuthedRequest, res) => {
   try {
     const { imageBase64, photoUrl, imageUrl, mimeType = 'image/jpeg', description = '', location } = req.body || {};
@@ -109,10 +136,17 @@ app.post('/api/analyze-defect', requireFirebaseUser, async (req: AuthedRequest, 
     if (!client) return res.status(503).json({ success: false, error: 'AI analysis is not configured on the server.' });
     const image = await resolveImage(imageBase64 || photoUrl || imageUrl, mimeType);
     if (!image) return res.status(400).json({ success: false, error: 'A valid road image is required for AI analysis.' });
-    const contents: any[] = [{ inlineData: { mimeType: image.mimeType, data: image.data } }, `Analyze this road-defect image objectively. Citizen description: ${description}. Location: ${location?.formattedAddress || location?.city || 'not supplied'}. Return ONLY valid JSON with defectType, severity, hazardScore, confidence, aiSummary, recommendedAction, estimatedRepairDays, suggestedDepartment. Do not invent measurements that cannot be observed.`];
+    const contents: any[] = [
+      { inlineData: { mimeType: image.mimeType, data: image.data } },
+      `You are the image-validation gate for a civic road complaint system. Inspect the IMAGE first. The citizen description is context only and must never override what is visible. Determine whether the image clearly shows a physical road defect that a municipal road authority could inspect or repair. A normal intact road, unrelated object, person, building, food, screenshot, document, or unclear image is not a road defect. Return ONLY JSON with exactly these fields: defectDetected (boolean), defectType (one of pothole, road_crack, surface_damage, drainage_failure, debris_or_obstruction, road_marking_damage, other_road_defect, no_road_defect), severity (Critical|High|Medium|Low), hazardScore (0-100), confidence (0-1), aiSummary (string), recommendedAction (string), estimatedRepairDays (integer), suggestedDepartment (string). Use no invented measurements. If evidence is insufficient, set defectDetected=false, defectType=no_road_defect, and confidence below 0.65. Citizen description: ${String(description).slice(0, 1000)}. Location: ${String(location?.formattedAddress || location?.city || 'not supplied').slice(0, 300)}.`,
+    ];
     const response = await client.models.generateContent({ model: 'gemini-3.8-flash', contents });
-    return res.json({ success: true, data: JSON.parse((response.text || '').replace(/```json/gi, '').replace(/```/g, '').trim()) });
-  } catch (error: any) { console.error('AI defect analysis failed:', error); return res.status(502).json({ success: false, error: error?.message || 'AI analysis failed.' }); }
+    const data = normalizeDefectResult(parseAiJson(response.text || ''));
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    console.error('AI defect analysis failed:', error);
+    return res.status(502).json({ success: false, error: error?.message || 'AI analysis failed. No complaint was submitted.' });
+  }
 });
 
 app.post('/api/verify-repair', requireFirebaseUser, async (req: AuthedRequest, res) => {
@@ -129,7 +163,7 @@ app.post('/api/verify-repair', requireFirebaseUser, async (req: AuthedRequest, r
     if (!before || !after) return res.status(400).json({ success: false, error: 'Both submitted images must be valid.' });
     const contents: any[] = [{ inlineData: { mimeType: before.mimeType, data: before.data } }, { inlineData: { mimeType: after.mimeType, data: after.data } }, `Compare Image 1 (before) and Image 2 (after) for a municipal road repair. Notes: before=${beforeDescription}; after=${afterDescription}; repair=${repairNotes}. Return ONLY valid JSON with isComparisonValid, status, overallScore, rejectionReason, details, stages, flags, payoutApproved. Reject a non-road after image. Do not infer image origin such as Google or AI generation solely from pixels; use observable visual evidence.`];
     const response = await client.models.generateContent({ model: 'gemini-3.8-flash', contents });
-    return res.json({ success: true, data: JSON.parse((response.text || '').replace(/```json/gi, '').replace(/```/g, '').trim()) });
+    return res.json({ success: true, data: parseAiJson(response.text || '') });
   } catch (error: any) { console.error('Repair verification failed:', error); return res.status(502).json({ success: false, error: error?.message || 'Repair verification failed.' }); }
 });
 
