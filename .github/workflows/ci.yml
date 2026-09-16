@@ -2,7 +2,7 @@ name: RoadSetu CI
 
 on:
   push:
-    branches: [production-hardening]
+    branches: [main, production-hardening]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -24,6 +24,9 @@ jobs:
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+
+      - name: Verify Firebase dependency tree
+        run: npm ls firebase-admin jwks-rsa jose
 
       - name: Typecheck
         run: npm run lint
