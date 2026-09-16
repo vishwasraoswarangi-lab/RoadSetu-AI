@@ -1,95 +1,28 @@
-name: Production hardening repair
+name: RoadSetu production validation
 
 on:
   push:
-    branches: [production-hardening]
+    branches:
+      - production-hardening
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  repair:
-    if: ${{ !contains(github.event.head_commit.message, '[repair-applied]') }}
+  validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: production-hardening
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Patch project
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json,re
-          from pathlib import Path
-          root=Path('.')
-          p=root/'package.json'
-          d=json.loads(p.read_text())
-          deps=d.setdefault('dependencies',{})
-          deps.update({'firebase-admin':'^14.4.0','serverless-http':'^3.2.0'})
-          d['engines']={'node':'>=22'}
-          p.write_text(json.dumps(d,indent=2)+'\n')
-
-          f=root/'src/lib/firebase.ts'
-          s=f.read_text()
-          if 'export async function getCurrentIdToken' not in s:
-              marker='export type { FirebaseUser };'
-              helper="export async function getCurrentIdToken(forceRefresh = false): Promise<string | null> {\n  if (!auth || !auth.currentUser) return null;\n  return auth.currentUser.getIdToken(forceRefresh);\n}\n\n"
-              s=s.replace(marker,helper+marker)
-              f.write_text(s)
-
-          api=root/'src/lib/apiClient.ts'
-          api.write_text("import { getCurrentIdToken } from './firebase';\n\nexport async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}) {\n  const token = await getCurrentIdToken();\n  const headers = new Headers(init.headers || {});\n  if (token) headers.set('Authorization', `Bearer ${token}`);\n  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');\n  return fetch(input, { ...init, headers });\n}\n")
-
-          s=root/'server.ts'
-          t=s.read_text()
-          if 'firebase-admin/auth' not in t:
-              t=t.replace("import dotenv from 'dotenv';", "import dotenv from 'dotenv';\nimport { getApps, initializeApp, cert, applicationDefault } from 'firebase-admin/app';\nimport { getAuth as getAdminAuth } from 'firebase-admin/auth';\nimport { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';")
-          if 'ROADSETU_FIREBASE_AUTH_MIDDLEWARE' not in t:
-              marker='app.use(express.json({ limit: \'15mb\' }));'
-              block="""\n// ROADSETU_FIREBASE_AUTH_MIDDLEWARE\nlet adminReady = false;\ntry {\n  if (!getApps().length) {\n    const projectId = process.env.FIREBASE_PROJECT_ID;\n    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;\n    const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\\\n/g, '\\n');\n    if (projectId && clientEmail && privateKey) initializeApp({ credential: cert({ projectId, clientEmail, privateKey }) });\n    else initializeApp({ credential: applicationDefault() });\n  }\n  adminReady = true;\n} catch (e) { console.error('Firebase Admin unavailable:', e); }\n\nasync function requireFirebaseUser(req: Request, res: Response, next: NextFunction) {\n  if (!adminReady) return res.status(503).json({ success:false, error:'Server authentication is not configured.' });\n  const h=req.headers.authorization || '';\n  if (!h.startsWith('Bearer ')) return res.status(401).json({ success:false, error:'Authentication required.' });\n  try {\n    (req as any).firebaseUser = await getAdminAuth().verifyIdToken(h.slice(7), true);\n    next();\n  } catch { return res.status(401).json({ success:false, error:'Invalid or expired Firebase session.' }); }\n}\n\nasync function requireAuthority(req: Request, res: Response, next: NextFunction) {\n  const uid=(req as any).firebaseUser?.uid;\n  if (!uid) return res.status(401).json({ success:false, error:'Authentication required.' });\n  try {\n    const snap=await getAdminFirestore().collection('users').doc(uid).get();\n    const role=String(snap.data()?.role || 'citizen').toLowerCase();\n    if (!['authority','municipal_officer','admin'].includes(role)) return res.status(403).json({ success:false, error:'Authority access required.' });\n    next();\n  } catch { return res.status(403).json({ success:false, error:'Unable to verify authority permissions.' }); }\n}\n\napp.use(['/api/analyze-defect','/api/verify-repair'], requireFirebaseUser);\napp.use('/api/authority', requireFirebaseUser, requireAuthority);\n"""
-              if marker in t: t=t.replace(marker,marker+block,1)
-          t=t.replace('const PORT = 3000;','const PORT = Number(process.env.PORT || 3000);')
-          if 'export { app };' not in t:
-              t=t.replace('startServer();',"if (!process.env.NETLIFY) startServer();\n\nexport { app };")
-          s.write_text(t)
-
-          nf=root/'netlify/functions/api.ts'
-          nf.parent.mkdir(parents=True,exist_ok=True)
-          nf.write_text("import serverless from 'serverless-http';\nimport { app } from '../../server';\nexport const handler = serverless(app);\n")
-
-          nt=root/'netlify.toml'
-          nt.write_text('''[build]\n  command = "npm run build"\n  publish = "dist"\n\n[functions]\n  directory = "netlify/functions"\n  node_bundler = "esbuild"\n  external_node_modules = ["express", "firebase-admin", "serverless-http"]\n\n[[redirects]]\n  from = "/api/*"\n  to = "/.netlify/functions/api/:splat"\n  status = 200\n  force = true\n\n[[redirects]]\n  from = "/*"\n  to = "/index.html"\n  status = 200\n''')
-
-          # Replace direct fetch calls only in the files that call our authenticated API.
-          for name in ['ReportPotholeView.tsx','MunicipalAdminView.tsx']:
-              q=root/'src/views'/name
-              if q.exists():
-                  x=q.read_text()
-                  if "from '../lib/apiClient'" not in x:
-                      x=x.replace("import { NavView } from '../components/Navbar';", "import { NavView } from '../components/Navbar';\nimport { apiFetch } from '../lib/apiClient';")
-                  x=re.sub(r'(?<![A-Za-z0-9_])fetch\((?=[\'\"]?/api/)', 'apiFetch(', x)
-                  q.write_text(x)
-          q=root/'src/lib/verificationEngine.ts'
-          if q.exists():
-              x=q.read_text()
-              if "from './apiClient'" not in x: x="import { apiFetch } from './apiClient';\n"+x
-              x=re.sub(r'(?<![A-Za-z0-9_])fetch\((?=[\'\"]?/api/)', 'apiFetch(', x)
-              q.write_text(x)
-
-          # Remove the failed self-modifying workflow; this repair workflow is the source of truth.
-          old=root/'.github/workflows/production-hardening.yml'
-          if old.exists(): old.unlink()
-          PY
-          npm install --package-lock=false
-          npm run lint
-          npm run build
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git commit -m 'chore: complete production hardening [repair-applied]'
-          git push origin production-hardening
+          cache: npm
+      - name: Install
+        run: npm install --no-audit --no-fund
+      - name: Typecheck
+        run: npm run lint
+      - name: Build
+        run: npm run build
