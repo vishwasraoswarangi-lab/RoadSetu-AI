@@ -64,7 +64,7 @@ function hardenReportFlow(): Plugin {
           "        return;",
           "      }",
           "      const department = String(data.suggestedDepartment || (humanLocation.road.toLowerCase().includes('highway') ? 'National Highway Authority (NHAI)' : ((humanLocation.city || 'Municipal') + ' Road Engineering Division')));",
-          "      const created = await addComplaint({ description, location: humanLocation, beforeImage: photoUrl, severity: analyzedSeverity, defectType, hazardScore: analyzedHazard, confidence, aiSummary, recommendedAction, estimatedRepairDays: Number(data.estimatedRepairDays) || (analyzedSeverity === 'Critical' ? 1 : 2), department });",
+          "      const created = await addComplaint({ description, location: humanLocation, beforeImage: photoUrl || base64Image || '', severity: analyzedSeverity, defectType, hazardScore: analyzedHazard, confidence, aiSummary, recommendedAction, estimatedRepairDays: Number(data.estimatedRepairDays) || (analyzedSeverity === 'Critical' ? 1 : 2), department });",
           "      setGeneratedComplaint(created);",
           "      setAiAnalysisComplete(true);",
           "    } catch (error) {",
@@ -84,10 +84,18 @@ function hardenReportFlow(): Plugin {
       }
 
       if (id.endsWith('/src/context/ComplaintsContext.tsx')) {
-        const oldBlock = "if (latestDuplicate.hasDuplicate && latestDuplicate.existingComplaint?.userId === user.uid) {\n      throw new Error('You already reported a nearby issue. Open the existing report or add evidence instead.');\n    }";
-        const newBlock = "const existingType = String(latestDuplicate.existingComplaint?.defectType || '').toLowerCase().trim();\n    const incomingType = String(data.defectType || '').toLowerCase().trim();\n    const sameDefect = Boolean(existingType && incomingType && (existingType === incomingType || existingType.includes(incomingType) || incomingType.includes(existingType)));\n    if (latestDuplicate.hasDuplicate && latestDuplicate.existingComplaint?.userId === user.uid && sameDefect) {\n      throw new Error('You already reported this same nearby defect. Open the existing report or add evidence instead.');\n    }";
-        if (!code.includes(oldBlock)) throw new Error('RoadSetu duplicate validation transform could not locate duplicate guard.');
-        return { code: code.replace(oldBlock, newBlock), map: null };
+        const guardPattern = /if \(latestDuplicate\.hasDuplicate && latestDuplicate\.existingComplaint\?\.userId === user\.uid\) \{\s*throw new Error\('You already reported a nearby issue\. Open the existing report or add evidence instead\.'\);\s*\}/;
+        const match = code.match(guardPattern);
+        if (!match) throw new Error('RoadSetu duplicate validation transform could not locate duplicate guard.');
+        const replacement = [
+          "const existingType = String(latestDuplicate.existingComplaint?.defectType || '').toLowerCase().trim();",
+          "const incomingType = String(data.defectType || '').toLowerCase().trim();",
+          "const sameDefect = Boolean(existingType && incomingType && (existingType === incomingType || existingType.includes(incomingType) || incomingType.includes(existingType)));",
+          "if (latestDuplicate.hasDuplicate && latestDuplicate.existingComplaint?.userId === user.uid && sameDefect) {",
+          "  throw new Error('You already reported this same nearby defect. Open the existing report or add evidence instead.');",
+          "}",
+        ].join('\n    ');
+        return { code: code.replace(guardPattern, replacement), map: null };
       }
     },
   };
