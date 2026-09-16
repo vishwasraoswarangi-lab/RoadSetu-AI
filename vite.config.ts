@@ -86,10 +86,10 @@ function hardenReportFlow(): Plugin {
       if (id.endsWith('/src/context/ComplaintsContext.tsx')) {
         const marker = "const latestDuplicate = checkForDuplicates(latitude, longitude);";
         const start = code.indexOf(marker);
-        const end = code.indexOf("\n\n    const randomSeq =", start);
+        const end = code.indexOf("const randomSeq =", start);
         if (start === -1 || end === -1) throw new Error('RoadSetu duplicate validation transform could not locate duplicate section.');
         const hardenedDuplicateGuard = [
-          "const latestDuplicate = checkForDuplicates(latitude, longitude);",
+          marker,
           "const existingType = String(latestDuplicate.existingComplaint?.defectType || '').toLowerCase().trim();",
           "const incomingType = String(data.defectType || '').toLowerCase().trim();",
           "const sameDefect = Boolean(existingType && incomingType && (existingType === incomingType || existingType.includes(incomingType) || incomingType.includes(existingType)));",
