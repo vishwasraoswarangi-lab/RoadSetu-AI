@@ -1,8 +1,6 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Default-deny catch-all
     match /{document=**} {
       allow read, write: if false;
     }
@@ -15,58 +13,60 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function userExists() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function isAdmin() {
-      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      return userExists() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
     function isAuthority() {
-      return isSignedIn() && (
-        isAdmin() ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['authority', 'municipal_officer', 'admin'])
-      );
+      return userExists() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['authority', 'municipal_officer', 'admin'];
     }
 
-    // Users Collection
+    // User profiles: users can read/update their own profile, authorities can read profiles for operational work.
+    // Role and clearance changes are never allowed from the client unless the existing caller is an admin.
     match /users/{userId} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || isAuthority());
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId) && (
-        // Prevent normal users from self-promoting to admin or authority
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'clearanceLevel']) || isAdmin()
-      );
-    }
-
-    // Reports Collection - Public transparency for map markers, civic reporting and municipal triage
-    match /reports/{reportId} {
-      allow read: if true; // Public safe reading for live city map and civic transparency
-      allow create: if isSignedIn() || (
-        request.resource.data.keys().hasAll(['defectType', 'location'])
-      );
-      allow update: if isAuthority() || (
-        isSignedIn() &&
-        (resource.data.userId == request.auth.uid || resource.data.reporterId == request.auth.uid) &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'status', 'escrowStatus', 'disbursedAmount', 'contractorId', 'contractorName', 'payoutAmount'
-        ])
-      );
+      allow read: if isOwner(userId) || isAuthority();
+      allow create: if isOwner(userId)
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.role == 'citizen';
+      allow update: if isOwner(userId)
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'clearanceLevel'])
+          || isAdmin()
+        );
       allow delete: if isAdmin();
     }
 
-    // Notifications Collection
+    // Public map transparency should expose only intentionally public report fields from the client.
+    // Report creation requires an authenticated Firebase user.
+    match /reports/{reportId} {
+      allow read: if true;
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthority() || (
+        isOwner(resource.data.userId) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'status', 'escrowStatus', 'disbursedAmount', 'contractorId', 'contractorName', 'payoutAmount', 'assignedDepartment'
+        ])
+      );
+      allow delete: if isAdmin() || (isOwner(resource.data.userId) && resource.data.status == 'submitted');
+    }
+
     match /notifications/{notificationId} {
       allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
       allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
 
-    // Repair Updates Collection
+    // Repair evidence is operational data. Only authenticated users can access it; authorities/admins can manage it.
     match /repair_updates/{updateId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isAdmin();
+      allow create: if isSignedIn() && request.resource.data.submittedBy == request.auth.uid;
+      allow update: if isAdmin() || isAuthority();
       allow delete: if isAdmin();
     }
   }

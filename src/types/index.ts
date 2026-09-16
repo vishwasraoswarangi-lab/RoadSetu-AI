@@ -1,13 +1,6 @@
 export type ComplaintStatus =
-  | 'reported'
-  | 'ai_analyzed'
-  | 'routed'
-  | 'assigned'
-  | 'repair_in_progress'
-  | 'repair_claimed'
-  | 'verified'
-  | 'suspicious'
-  | 'closed';
+  | 'reported' | 'ai_analyzed' | 'routed' | 'assigned'
+  | 'repair_in_progress' | 'repair_claimed' | 'verified' | 'suspicious' | 'closed';
 
 export type SeverityLevel = 'Critical' | 'High' | 'Medium' | 'Low';
 
@@ -25,7 +18,7 @@ export interface HumanLocation {
 
 export interface VerificationModuleScore {
   name: string;
-  score: number; // 0 - 100
+  score: number;
   passed: boolean;
   details: string;
   metricLabel: string;
@@ -36,7 +29,7 @@ export interface VerificationStageItem {
   name: string;
   stageNumber: number;
   passed: boolean;
-  score: number; // 0 - 100
+  score: number;
   status: 'passed' | 'failed' | 'warning' | 'pending';
   details: string;
   detectedScene1?: string;
@@ -53,7 +46,7 @@ export interface VerificationStages {
 
 export interface VerificationResult {
   complaintId: string;
-  overallScore: number; // 0 - 100
+  overallScore: number;
   status: 'verified' | 'suspicious' | 'needs_review' | 'rejected';
   isComparisonValid?: boolean;
   rejectionReason?: string | null;
@@ -86,15 +79,15 @@ export interface VerificationResult {
 }
 
 export interface Complaint {
-  id: string; // e.g. RS-2026-MH-00421
-  userId: string; // Firebase UID of citizen
+  id: string;
+  userId: string;
   userEmail?: string;
   userName?: string;
   description: string;
   location: HumanLocation;
   defectType?: string;
   severity: SeverityLevel;
-  hazardScore: number; // 0 - 100
+  hazardScore: number;
   confidence?: number;
   aiSummary?: string;
   recommendedAction?: string;
@@ -104,6 +97,7 @@ export interface Complaint {
   beforeImage: string;
   afterImage?: string | null;
   repairStatus?: string;
+  escrowStatus?: string;
   createdAt: string;
   updatedAt: string;
   estimatedRepairDays: number;
