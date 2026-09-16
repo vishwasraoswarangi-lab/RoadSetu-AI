@@ -13,23 +13,30 @@ jobs:
     if: ${{ !contains(github.event.head_commit.message, '[server-repaired]') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           ref: production-hardening
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Repair server safely
+
+      - name: Restore full server and apply surgical hardening
         shell: python
         run: |
           from pathlib import Path
+          import subprocess
           import re
 
+          # Restore the last known-good full server before the accidental destructive rewrite.
+          subprocess.run(['git', 'checkout', '3e5b2c23f3108ec917e284f1f23ce4291b38d29c', '--', 'server.ts'], check=True)
           p = Path('server.ts')
           s = p.read_text(encoding='utf-8')
 
-          # Add Firebase Admin imports once.
+          # Firebase Admin imports.
           imports = (
               "import { getApps, initializeApp, cert, applicationDefault } from 'firebase-admin/app';\n"
               "import { getAuth as getAdminAuth } from 'firebase-admin/auth';\n"
@@ -38,28 +45,14 @@ jobs:
           if "firebase-admin/auth" not in s:
               s = s.replace("import dotenv from 'dotenv';\n", "import dotenv from 'dotenv';\n" + imports, 1)
 
-          # Remove the old insecure client-controlled authority middleware.
-          s = re.sub(
-              r"\n/\*\*\n \* Backend authorization middleware\..*?\nfunction requireAuthority\(.*?\n\}\n",
-              "\n",
-              s,
-              flags=re.S,
-          )
-
-          # Remove the obsolete demo profile endpoint and all demo identities.
-          s = re.sub(
-              r"\n/\*\*\n \* Auth contract endpoint:.*?\napp\.post\('/api/auth/profile'.*?\n\}\);\n",
-              "\n",
-              s,
-              flags=re.S,
-          )
-
-          # Insert verified Firebase-token middleware exactly once.
-          marker = "app.use(express.json({ limit: '15mb' }));"
-          if "PRODUCTION_FIREBASE_AUTH_MIDDLEWARE" not in s:
-              block = r'''
-
-// PRODUCTION_FIREBASE_AUTH_MIDDLEWARE
+          # Replace the old client-controlled role-header middleware only.
+          auth_start = s.find('/**\n * Backend authorization middleware.')
+          auth_end = s.find('/**\n * Authority: Verify status / Healthcheck for Authority Portal', auth_start)
+          if auth_start >= 0 and auth_end > auth_start:
+              secure_auth = r'''/**
+ * Server-side Firebase authentication and authority authorization.
+ * Never trusts a client-supplied role or UID.
+ */
 let firebaseAdminReady = false;
 try {
   if (!getApps().length) {
@@ -113,11 +106,21 @@ async function requireAuthority(req: Request, res: Response, next: NextFunction)
 
 app.use(['/api/analyze-defect', '/api/verify-repair'], requireFirebaseUser);
 app.use('/api/authority', requireFirebaseUser, requireAuthority);
+
 '''
-              s = s.replace(marker, marker + block, 1)
+              s = s[:auth_start] + secure_auth + s[auth_end:]
+
+          # Remove the obsolete client-controlled auth-profile contract endpoint.
+          profile_start = s.find('/**\n * Auth contract endpoint: Returns { userId, role, profile }')
+          if profile_start >= 0:
+              profile_end = s.find('/**\n * Authority: Verify status / Healthcheck for Authority Portal', profile_start)
+              if profile_end > profile_start:
+                  s = s[:profile_start] + s[profile_end:]
 
           s = s.replace('const PORT = 3000;', 'const PORT = Number(process.env.PORT || 3000);')
-          s = s.replace('startServer();\n', "if (!process.env.NETLIFY) startServer();\n\nexport { app };\n", 1)
+          if 'export { app };' not in s:
+              s = s.replace('startServer();', "if (!process.env.NETLIFY) startServer();\n\nexport { app };")
+
           p.write_text(s, encoding='utf-8')
 
           nf = Path('netlify/functions/api.ts')
@@ -128,20 +131,20 @@ app.use('/api/authority', requireFirebaseUser, requireAuthority);
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+
       - name: Typecheck
         run: npm run lint
+
       - name: Build
         run: npm run build
-      - name: Commit repair
+
+      - name: Commit repaired server
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add server.ts netlify/functions/api.ts netlify.toml
-          if git diff --cached --quiet; then
-            echo 'No repair changes required.'
-          else
-            git commit -m 'fix: repair production auth and deployment [server-repaired]'
-            git push origin production-hardening
-          fi
+          git diff --cached --check
+          git commit -m 'fix: restore full server and secure Firebase auth [server-repaired]'
+          git push origin production-hardening
