@@ -54,6 +54,7 @@ function hardenReportFlow(): Plugin {
           "      const aiSummary = String(data.aiSummary || 'Road defect verified by AI vision analysis.');",
           "      const recommendedAction = String(data.recommendedAction || 'Route to the responsible road authority for inspection.');",
           "      setAiDetails({ defectType, hazardScore: analyzedHazard, confidence, aiSummary, recommendedAction });",
+          "      // IMPORTANT: location is not a duplicate by itself. Only the same citizen + same active defect is blocked.",
           "      const dupCheck = checkForDuplicates(humanLocation.latitude, humanLocation.longitude);",
           "      const existingType = String(dupCheck.existingComplaint?.defectType || '').toLowerCase().trim();",
           "      const incomingType = defectType.toLowerCase().trim();",
@@ -80,6 +81,7 @@ function hardenReportFlow(): Plugin {
           next = next.replace(fallback, "\n          setLocationError(res.errorMessage || 'Unable to determine your location. Please enable location or choose a location manually.');\n          setLocationSuccessText('Location required');");
         }
         if (!next.includes("apiFetch('/api/analyze-defect'")) throw new Error('RoadSetu report validation transform did not inject AI validation.');
+        if (next.includes("checkForDuplicates(humanLocation.latitude, humanLocation.longitude);\n      if (dupCheck.hasDuplicate")) throw new Error('RoadSetu build guard: pre-AI duplicate blocking still exists.');
         return { code: next, map: null };
       }
 
