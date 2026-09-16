@@ -23,20 +23,18 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: ''
 
       - name: Restore full server and apply surgical hardening
         shell: python
         run: |
           from pathlib import Path
           import subprocess
-          import re
 
-          # Restore the last known-good full server before the accidental destructive rewrite.
           subprocess.run(['git', 'checkout', '3e5b2c23f3108ec917e284f1f23ce4291b38d29c', '--', 'server.ts'], check=True)
           p = Path('server.ts')
           s = p.read_text(encoding='utf-8')
 
-          # Firebase Admin imports.
           imports = (
               "import { getApps, initializeApp, cert, applicationDefault } from 'firebase-admin/app';\n"
               "import { getAuth as getAdminAuth } from 'firebase-admin/auth';\n"
@@ -45,11 +43,12 @@ jobs:
           if "firebase-admin/auth" not in s:
               s = s.replace("import dotenv from 'dotenv';\n", "import dotenv from 'dotenv';\n" + imports, 1)
 
-          # Replace the old client-controlled role-header middleware only.
           auth_start = s.find('/**\n * Backend authorization middleware.')
           auth_end = s.find('/**\n * Authority: Verify status / Healthcheck for Authority Portal', auth_start)
-          if auth_start >= 0 and auth_end > auth_start:
-              secure_auth = r'''/**
+          if auth_start < 0 or auth_end <= auth_start:
+              raise SystemExit('Could not locate the original authority middleware; refusing a blind rewrite.')
+
+          secure_auth = r'''/**
  * Server-side Firebase authentication and authority authorization.
  * Never trusts a client-supplied role or UID.
  */
@@ -108,9 +107,8 @@ app.use(['/api/analyze-defect', '/api/verify-repair'], requireFirebaseUser);
 app.use('/api/authority', requireFirebaseUser, requireAuthority);
 
 '''
-              s = s[:auth_start] + secure_auth + s[auth_end:]
+          s = s[:auth_start] + secure_auth + s[auth_end:]
 
-          # Remove the obsolete client-controlled auth-profile contract endpoint.
           profile_start = s.find('/**\n * Auth contract endpoint: Returns { userId, role, profile }')
           if profile_start >= 0:
               profile_end = s.find('/**\n * Authority: Verify status / Healthcheck for Authority Portal', profile_start)
@@ -119,8 +117,9 @@ app.use('/api/authority', requireFirebaseUser, requireAuthority);
 
           s = s.replace('const PORT = 3000;', 'const PORT = Number(process.env.PORT || 3000);')
           if 'export { app };' not in s:
+              if 'startServer();' not in s:
+                  raise SystemExit('startServer() not found; refusing to fabricate server lifecycle.')
               s = s.replace('startServer();', "if (!process.env.NETLIFY) startServer();\n\nexport { app };")
-
           p.write_text(s, encoding='utf-8')
 
           nf = Path('netlify/functions/api.ts')
