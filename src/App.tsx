@@ -15,7 +15,6 @@ import { LiveMapView } from './views/LiveMapView';
 import { VerificationCenterView } from './views/VerificationCenterView';
 import { MunicipalAdminView } from './views/MunicipalAdminView';
 import { AccountabilityView } from './views/AccountabilityView';
-import { HowItWorksView } from './views/HowItWorksView';
 import { Complaint } from './types';
 
 const MainAppContent: React.FC = () => {
@@ -43,10 +42,8 @@ const MainAppContent: React.FC = () => {
           <h2 className="text-2xl font-black text-white">Verified Municipal Account Required</h2>
           <p className="mt-2 text-xs leading-relaxed text-slate-400">Authority controls are available only to accounts provisioned with a municipal authority role. Citizen accounts cannot self-register for official access.</p>
           <div className="mt-5 rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-left text-xs text-slate-400"><div className="font-semibold text-slate-300">Secure access</div><p className="mt-1">Use the authorized municipal account issued by your system administrator.</p></div>
-          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-center"><button onClick={() => openAuthModal('login', 'authority')} className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-xs font-bold text-slate-950 hover:bg-amber-400"><Building2 className="h-4 w-4" />Sign In as Authority</button><button onClick={() => handleNavigate('dashboard')} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-xs font-semibold"><span>Return to Citizen Portal</span><ArrowRight className="h-3.5 w-3.5" /></button></div>
-        </div></div>)}
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-center"><button onClick={() => openAuthModal('login', 'authority')} className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-xs font-bold text-slate-950 hover:bg-amber-400"><Building2 className="h-4 w-4" />Sign In as Authority</button><button onClick={() => handleNavigate('dashboard')} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-xs font-semibold"><span>Return to Citizen Portal</span><ArrowRight className="h-3.5 w-3.5" /></button></div></div></div>)}
       {currentView === 'accountability' && <AccountabilityView onNavigate={handleNavigate} />}
-      {currentView === 'how-it-works' && <HowItWorksView onNavigate={handleNavigate} />}
     </main>
     <Footer onNavigate={handleNavigate} />
     <AuthModal />
