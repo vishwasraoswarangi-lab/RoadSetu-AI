@@ -25,8 +25,6 @@ service cloud.firestore {
       return userExists() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['authority', 'municipal_officer', 'admin'];
     }
 
-    // User profiles: users can read/update their own profile, authorities can read profiles for operational work.
-    // Role and clearance changes are never allowed from the client unless the existing caller is an admin.
     match /users/{userId} {
       allow read: if isOwner(userId) || isAuthority();
       allow create: if isOwner(userId)
@@ -40,19 +38,27 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Public map transparency should expose only intentionally public report fields from the client.
-    // Report creation requires an authenticated Firebase user.
     match /reports/{reportId} {
       allow read: if true;
       allow create: if isSignedIn()
-        && request.resource.data.userId == request.auth.uid;
+        && request.resource.data.reporterId == request.auth.uid;
       allow update: if isAuthority() || (
-        isOwner(resource.data.userId) &&
+        isOwner(resource.data.reporterId) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'status', 'escrowStatus', 'disbursedAmount', 'contractorId', 'contractorName', 'payoutAmount', 'assignedDepartment'
+          'status', 'escrowStatus', 'disbursedAmount', 'contractorId', 'contractorName', 'payoutAmount', 'assignedDepartment', 'reporterId'
         ])
       );
-      allow delete: if isAdmin() || (isOwner(resource.data.userId) && resource.data.status == 'submitted');
+      allow delete: if isAdmin() || (isOwner(resource.data.reporterId) && resource.data.status == 'submitted');
+
+      match /supporters/{supporterUid} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn()
+          && supporterUid == request.auth.uid
+          && request.resource.data.uid == request.auth.uid
+          && exists(/databases/$(database)/documents/reports/$(reportId));
+        allow update: if false;
+        allow delete: if isAdmin() || supporterUid == request.auth.uid;
+      }
     }
 
     match /notifications/{notificationId} {
@@ -62,7 +68,6 @@ service cloud.firestore {
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
 
-    // Repair evidence is operational data. Only authenticated users can access it; authorities/admins can manage it.
     match /repair_updates/{updateId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && request.resource.data.submittedBy == request.auth.uid;
