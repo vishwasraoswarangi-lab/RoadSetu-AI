@@ -42,6 +42,7 @@ export const ReportFlowView: React.FC<ReportFlowViewProps> = ({ onNavigate }) =>
   const [locationError, setLocationError] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
+  const [cameraPreview, setCameraPreview] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -88,16 +89,27 @@ export const ReportFlowView: React.FC<ReportFlowViewProps> = ({ onNavigate }) =>
     const reader = new FileReader();
     reader.onload = () => setImage(String(reader.result));
     reader.readAsDataURL(file);
+    event.target.value = '';
   };
 
   const openCamera = async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
+      showToast('Live camera is not supported here. Use Upload Image instead.', 'info');
       cameraInputRef.current?.click();
       return;
     }
     setCameraLoading(true);
+    setCameraPreview(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+      streamRef.current?.getTracks().forEach(track => track.stop());
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      });
       streamRef.current = stream;
       setCameraOpen(true);
       requestAnimationFrame(() => {
@@ -106,9 +118,16 @@ export const ReportFlowView: React.FC<ReportFlowViewProps> = ({ onNavigate }) =>
           videoRef.current.play().catch(() => undefined);
         }
       });
-    } catch {
-      showToast('Camera access was blocked. You can upload an image instead.', 'info');
-      cameraInputRef.current?.click();
+    } catch (error) {
+      const name = error instanceof DOMException ? error.name : '';
+      const message = name === 'NotAllowedError' || name === 'SecurityError'
+        ? 'Camera permission was denied. Allow camera access in your browser settings, then try again.'
+        : name === 'NotFoundError'
+          ? 'No camera was found on this device.'
+          : name === 'NotReadableError'
+            ? 'The camera is currently being used by another application.'
+            : 'Unable to access the camera. You can use Upload Image instead.';
+      showToast(message, 'info');
     } finally {
       setCameraLoading(false);
     }
@@ -118,20 +137,39 @@ export const ReportFlowView: React.FC<ReportFlowViewProps> = ({ onNavigate }) =>
     streamRef.current?.getTracks().forEach(track => track.stop());
     streamRef.current = null;
     setCameraOpen(false);
+    setCameraPreview(null);
   };
 
   const captureFrame = () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || video.videoWidth === 0) return;
+    if (!video || !canvas || video.videoWidth === 0 || video.videoHeight === 0) {
+      showToast('Camera is still starting. Please wait a moment and try again.', 'info');
+      return;
+    }
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    setImage(canvas.toDataURL('image/jpeg', 0.9));
-    closeCamera();
-    showToast('Live road image captured.', 'success');
+    const captured = canvas.toDataURL('image/jpeg', 0.9);
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+    setCameraPreview(captured);
+    showToast('Image captured. Review it before using it.', 'success');
+  };
+
+  const retakePhoto = () => {
+    setCameraPreview(null);
+    void openCamera();
+  };
+
+  const useCapturedPhoto = () => {
+    if (!cameraPreview) return;
+    setImage(cameraPreview);
+    setCameraPreview(null);
+    setCameraOpen(false);
+    showToast('Live road image selected.', 'success');
   };
 
   const refreshLocation = async () => {
@@ -179,15 +217,22 @@ export const ReportFlowView: React.FC<ReportFlowViewProps> = ({ onNavigate }) =>
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageBase64: base64Image, description, location }),
       });
-      const json = response.ok ? await response.json() : {};
-      const data: Analysis = json.data || json || {};
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => '');
+        throw new Error(errorBody || `AI analysis failed with HTTP ${response.status}.`);
+      }
+      const json = await response.json();
+      const data: Analysis = json.data || json;
+      if (!data?.defectType || !data?.severity) {
+        throw new Error('AI analysis returned an incomplete result.');
+      }
       const result: Analysis = {
-        defectType: data.defectType || 'Road surface defect',
-        severity: data.severity || 'Medium',
-        hazardScore: data.hazardScore ?? 60,
-        confidence: data.confidence ?? 80,
-        aiSummary: data.aiSummary || 'The image has been analyzed for visible road-surface damage.',
-        recommendedAction: data.recommendedAction || 'Route the report to the appropriate road authority for inspection.',
+        defectType: data.defectType,
+        severity: data.severity,
+        hazardScore: data.hazardScore,
+        confidence: data.confidence,
+        aiSummary: data.aiSummary,
+        recommendedAction: data.recommendedAction,
       };
       setAnalysis(result);
 
@@ -208,7 +253,7 @@ export const ReportFlowView: React.FC<ReportFlowViewProps> = ({ onNavigate }) =>
       showToast('Report submitted successfully.', 'success');
     } catch (error) {
       console.error('Road defect submission failed:', error);
-      showToast('Could not complete the report. Please try again.', 'error');
+      showToast(error instanceof Error ? error.message : 'Could not complete the report. Please try again.', 'error');
     } finally {
       setAnalyzing(false);
     }
@@ -231,10 +276,10 @@ export const ReportFlowView: React.FC<ReportFlowViewProps> = ({ onNavigate }) =>
           <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl sm:p-6">
             <div className="mb-5 flex items-center justify-between"><div><h2 className="text-lg font-bold text-white">Road image</h2><p className="text-xs text-slate-500">Use a fresh photo or choose one from your device.</p></div><ShieldCheck className="h-5 w-5 text-emerald-400" /></div>
 
-            {photoUrl ? <div className="relative overflow-hidden rounded-2xl border border-slate-700 bg-slate-950"><img src={photoUrl} alt="Selected road condition" className="max-h-[430px] w-full object-cover" /><button onClick={() => { setPhotoUrl(null); setBase64Image(null); setAnalysis(null); }} className="absolute right-3 top-3 rounded-full border border-white/10 bg-slate-950/80 p-2 text-white backdrop-blur hover:bg-slate-900"><X className="h-4 w-4" /></button></div> : <div className="flex min-h-[360px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-6 text-center"><div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-400"><ImagePlus className="h-8 w-8" /></div><h3 className="font-bold text-white">Add a clear road image</h3><p className="mt-1 max-w-sm text-xs text-slate-500">A visible road surface helps the AI identify the defect accurately.</p></div>}
+            {photoUrl ? <div className="relative overflow-hidden rounded-2xl border border-slate-700 bg-slate-950"><img src={photoUrl} alt="Selected road condition" className="max-h-[430px] w-full object-cover" /><button onClick={() => { setPhotoUrl(null); setBase64Image(null); setAnalysis(null); }} aria-label="Remove selected image" className="absolute right-3 top-3 rounded-full border border-white/10 bg-slate-950/80 p-2 text-white backdrop-blur hover:bg-slate-900"><X className="h-4 w-4" /></button></div> : <div className="flex min-h-[360px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 px-6 text-center"><div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-400"><ImagePlus className="h-8 w-8" /></div><h3 className="font-bold text-white">Add a clear road image</h3><p className="mt-1 max-w-sm text-xs text-slate-500">A visible road surface helps the AI identify the defect accurately.</p></div>}
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <button onClick={openCamera} disabled={cameraLoading} className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-400 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-60">{cameraLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}Capture Live Image</button>
+              <button onClick={() => void openCamera()} disabled={cameraLoading} className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-400 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-60">{cameraLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}Capture Live Image</button>
               <button onClick={() => fileInputRef.current?.click()} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-700"><Upload className="h-4 w-4" />Upload Image</button>
               <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
               <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleFile} className="hidden" />
@@ -246,7 +291,7 @@ export const ReportFlowView: React.FC<ReportFlowViewProps> = ({ onNavigate }) =>
           <aside className="space-y-5">
             <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl"><div className="flex items-start justify-between gap-3"><div><h2 className="text-base font-bold text-white">Location</h2><p className="mt-1 text-xs text-slate-500">Used to route the report to the right area.</p></div><MapPin className="h-5 w-5 text-cyan-400" /></div><div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">{locationLoading ? <div className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="h-4 w-4 animate-spin" />Detecting your location…</div> : location.formattedAddress ? <><p className="text-sm font-semibold text-white">{location.formattedAddress}</p><p className="mt-1 text-xs text-slate-500">{location.road}{location.area ? ` · ${location.area}` : ''}</p></> : <p className="text-sm text-amber-300">Location not available</p>}</div>{locationError && <p className="mt-3 text-xs text-amber-300">{locationError}</p>}<button onClick={refreshLocation} disabled={locationLoading} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700 px-3 py-2.5 text-xs font-semibold text-slate-300 hover:bg-slate-800"><RefreshCw className="h-3.5 w-3.5" />Use current location</button></section>
 
-            <section className="rounded-3xl border border-cyan-500/20 bg-cyan-500/[0.04] p-5"><div className="flex items-center gap-2 text-cyan-300"><Sparkles className="h-4 w-4" /><h2 className="text-base font-bold">AI analysis</h2></div>{analysis ? <div className="mt-4 space-y-3"><div className="flex items-center justify-between"><span className="text-xs text-slate-400">Detected defect</span><span className="text-sm font-bold text-white">{analysis.defectType}</span></div><div className="flex items-center justify-between"><span className="text-xs text-slate-400">Severity</span><span className="text-sm font-bold text-white">{analysis.severity}</span></div><div className="flex items-center justify-between"><span className="text-xs text-slate-400">Confidence</span><span className="text-sm font-bold text-cyan-300">{analysis.confidence}%</span></div><p className="border-t border-slate-800 pt-3 text-xs leading-relaxed text-slate-400">{analysis.aiSummary}</p></div> : <p className="mt-3 text-xs leading-relaxed text-slate-500">Your image is analyzed only when you submit. The result will appear here before you leave the screen.</p>}</section>
+            <section className="rounded-3xl border border-cyan-500/20 bg-cyan-500/[0.04] p-5"><div className="flex items-center gap-2 text-cyan-300"><Sparkles className="h-4 w-4" /><h2 className="text-base font-bold">AI analysis</h2></div>{analysis ? <div className="mt-4 space-y-3"><div className="flex items-center justify-between"><span className="text-xs text-slate-400">Detected defect</span><span className="text-sm font-bold text-white">{analysis.defectType}</span></div><div className="flex items-center justify-between"><span className="text-xs text-slate-400">Severity</span><span className="text-sm font-bold text-white">{analysis.severity}</span></div><div className="flex items-center justify-between"><span className="text-xs text-slate-400">Confidence</span><span className="text-sm font-bold text-cyan-300">{analysis.confidence ?? '—'}%</span></div><p className="border-t border-slate-800 pt-3 text-xs leading-relaxed text-slate-400">{analysis.aiSummary || 'Analysis completed.'}</p></div> : <p className="mt-3 text-xs leading-relaxed text-slate-500">Your image is analyzed only when you submit. The result will appear here before you leave the screen.</p>}</section>
           </aside>
         </div>
 
@@ -257,7 +302,7 @@ export const ReportFlowView: React.FC<ReportFlowViewProps> = ({ onNavigate }) =>
         <div className="mt-4 flex items-center justify-center gap-2 text-[11px] text-slate-600"><ShieldCheck className="h-3.5 w-3.5" />Your authenticated account is attached to the report.</div>
       </div>
 
-      {cameraOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"><div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-slate-700 bg-slate-950 shadow-2xl"><div className="flex items-center justify-between border-b border-slate-800 px-4 py-3"><div><p className="font-bold text-white">Capture live road image</p><p className="text-[11px] text-slate-500">Keep the damaged area clearly visible.</p></div><button onClick={closeCamera} className="rounded-full p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-5 w-5" /></button></div><video ref={videoRef} autoPlay playsInline muted className="aspect-video w-full bg-black object-cover" /><div className="p-4"><button onClick={captureFrame} className="w-full rounded-xl bg-cyan-400 py-3 text-sm font-black text-slate-950 hover:bg-cyan-300"><Camera className="mr-2 inline h-4 w-4" />Capture Image</button></div></div></div>}
+      {cameraOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"><div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-slate-700 bg-slate-950 shadow-2xl"><div className="flex items-center justify-between border-b border-slate-800 px-4 py-3"><div><p className="font-bold text-white">Capture live road image</p><p className="text-[11px] text-slate-500">{cameraPreview ? 'Review the photo before adding it to your report.' : 'Camera access is used only while this capture window is open.'}</p></div><button onClick={closeCamera} aria-label="Close camera" className="rounded-full p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-5 w-5" /></button></div>{cameraPreview ? <div className="bg-black"><img src={cameraPreview} alt="Captured road preview" className="aspect-video w-full object-contain" /></div> : <video ref={videoRef} autoPlay playsInline muted className="aspect-video w-full bg-black object-cover" />}<div className="grid gap-3 p-4 sm:grid-cols-2">{cameraPreview ? <><button onClick={retakePhoto} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 py-3 text-sm font-semibold text-white hover:bg-slate-800"><RefreshCw className="h-4 w-4" />Retake</button><button onClick={useCapturedPhoto} className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-400 py-3 text-sm font-black text-slate-950 hover:bg-cyan-300"><CheckCircle2 className="h-4 w-4" />Use Photo</button></> : <button onClick={captureFrame} className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-400 py-3 text-sm font-black text-slate-950 hover:bg-cyan-300 sm:col-span-2"><Camera className="h-4 w-4" />Capture Image</button>}</div></div></div>}
       <canvas ref={canvasRef} className="hidden" />
     </div>
   );
