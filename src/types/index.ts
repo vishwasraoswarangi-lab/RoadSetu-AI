@@ -78,6 +78,15 @@ export interface VerificationResult {
   recommendation?: 'approve_payout' | 'freeze_payout_and_strike' | 'request_field_audit' | 'reupload_required';
 }
 
+export interface ComplaintEvidence {
+  id: string;
+  imageUrl: string;
+  storagePath?: string;
+  uploadedBy: string;
+  uploadedAt: string;
+  type: 'image';
+}
+
 export interface Complaint {
   id: string;
   userId: string;
@@ -145,4 +154,6 @@ export interface DuplicateCheckResult {
   hasDuplicate: boolean;
   existingComplaint?: Complaint;
   distanceMeters?: number;
+  isOwnComplaint?: boolean;
+  isClosedComplaint?: boolean;
 }
