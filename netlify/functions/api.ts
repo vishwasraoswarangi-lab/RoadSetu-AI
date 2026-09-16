@@ -7,6 +7,12 @@ import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 const app = express();
 app.use(express.json({ limit: '15mb' }));
 
+const FIREBASE_PROJECT_ID = 'gen-lang-client-0437042384';
+// Firebase Web API keys are identifiers, not service-account secrets. Keep this
+// value aligned with firebase-applet-config.json so a stale Netlify env var
+// cannot make valid client ID tokens look invalid.
+const FIREBASE_WEB_API_KEY = 'AIzaSyBRlQw7fvhjP8Wds2htBRT38hW0bUsGhU';
+
 let firebaseAdminReady = false;
 try {
   if (!getApps().length) {
@@ -22,15 +28,17 @@ try {
 interface AuthedRequest extends Request { firebaseUser?: { uid: string; email?: string; [key: string]: unknown } }
 
 async function verifyWithFirebaseWebApi(idToken: string) {
-  const apiKey = process.env.FIREBASE_WEB_API_KEY || process.env.VITE_FIREBASE_API_KEY || 'AIzaSyBRlQw7fvhjP8wXds2htBRT38hW0bUsGhU';
-  const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`, {
+  const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(FIREBASE_WEB_API_KEY)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idToken }),
     signal: AbortSignal.timeout(7000),
   });
-  if (!response.ok) return null;
-  const data = await response.json() as { users?: Array<{ localId?: string; email?: string }> };
+  const data = await response.json().catch(() => ({})) as { users?: Array<{ localId?: string; email?: string }>; error?: { message?: string } };
+  if (!response.ok) {
+    console.warn('Firebase Web API token lookup rejected:', data?.error?.message || `HTTP ${response.status}`);
+    return null;
+  }
   const firebaseUser = data.users?.[0];
   if (!firebaseUser?.localId) return null;
   return { uid: firebaseUser.localId, email: firebaseUser.email || '' };
@@ -42,20 +50,9 @@ async function requireFirebaseUser(req: AuthedRequest, res: Response, next: Next
   const token = header.slice(7).trim();
   if (!token) return res.status(401).json({ success: false, error: 'Authentication required.' });
 
-  // Primary verification uses Firebase Admin. Do not require token revocation
-  // checks here: a normal, valid ID-token session must be accepted by the API.
-  if (firebaseAdminReady) {
-    try {
-      req.firebaseUser = await getAdminAuth().verifyIdToken(token, false);
-      return next();
-    } catch (error) {
-      console.warn('Firebase Admin token verification failed; trying Firebase Auth API fallback.', error);
-    }
-  }
-
-  // Netlify deployments can have stale/mismatched Admin credentials. The
-  // Firebase Auth REST lookup validates the ID token against the same web
-  // project used by the client and avoids rejecting an otherwise valid session.
+  // Validate against the exact Firebase project used by the browser first.
+  // This avoids rejecting a valid client ID token because Netlify has stale or
+  // mismatched Admin service-account environment variables.
   try {
     const firebaseUser = await verifyWithFirebaseWebApi(token);
     if (firebaseUser) {
@@ -63,10 +60,21 @@ async function requireFirebaseUser(req: AuthedRequest, res: Response, next: Next
       return next();
     }
   } catch (error) {
-    console.error('Firebase Auth API fallback failed:', error);
+    console.error('Firebase Web API token validation failed:', error);
   }
 
-  return res.status(401).json({ success: false, error: 'Invalid or expired Firebase session.' });
+  // Admin verification remains as a secondary path for environments where the
+  // Web API is temporarily unavailable.
+  if (firebaseAdminReady) {
+    try {
+      req.firebaseUser = await getAdminAuth().verifyIdToken(token, false);
+      return next();
+    } catch (error) {
+      console.warn('Firebase Admin token verification failed:', error);
+    }
+  }
+
+  return res.status(401).json({ success: false, error: `Invalid Firebase ID token for project ${FIREBASE_PROJECT_ID}. Please refresh your session and try again.` });
 }
 
 let aiClient: GoogleGenAI | null = null;
