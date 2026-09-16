@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import {
-  Compass, FilePlus, BarChart3, CheckCircle, HelpCircle, User, LogOut,
-  ChevronDown, Menu, X, FileText, Building2, Bell, Check,
+  Compass, FilePlus, BarChart3, CheckCircle, User, LogOut,
+  ChevronDown, Menu, X, FileText, Building2, Bell,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useComplaints } from '../context/ComplaintsContext';
 
 export type NavView =
   | 'landing' | 'dashboard' | 'report' | 'my-complaints' | 'map'
-  | 'verification' | 'admin' | 'accountability' | 'how-it-works';
+  | 'verification' | 'admin' | 'accountability';
 
 interface NavbarProps {
   currentView: NavView;
@@ -47,7 +47,6 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenP
         { id: 'map' as NavView, label: 'Live City Map', icon: Compass },
         { id: 'verification' as NavView, label: 'Verification Center', icon: CheckCircle },
         { id: 'accountability' as NavView, label: 'Public Audit', icon: BarChart3 },
-        { id: 'how-it-works' as NavView, label: 'How It Works', icon: HelpCircle },
       ];
 
   return (
