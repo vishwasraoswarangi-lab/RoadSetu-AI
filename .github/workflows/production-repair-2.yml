@@ -1,118 +1,25 @@
-name: RoadSetu production repair 2
+name: RoadSetu manual validation
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - production-hardening
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  repair:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: production-hardening
-          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Repair source
-        shell: bash
-        run: |
-          set -euo pipefail
-          node <<'NODE'
-          const fs = require('fs');
-          const path = require('path');
-          const read = p => fs.readFileSync(p, 'utf8');
-          const write = (p, s) => fs.writeFileSync(p, s);
-
-          const pkgPath = 'package.json';
-          const pkg = JSON.parse(read(pkgPath));
-          pkg.dependencies = pkg.dependencies || {};
-          pkg.dependencies['firebase-admin'] = '^14.4.0';
-          pkg.dependencies['serverless-http'] = '^3.2.0';
-          pkg.engines = { node: '>=22' };
-          write(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
-
-          const firebasePath = 'src/lib/firebase.ts';
-          let firebase = read(firebasePath);
-          if (!firebase.includes('getCurrentIdToken')) {
-            const helper = "\nexport async function getCurrentIdToken(forceRefresh = false): Promise<string | null> {\n  if (!auth?.currentUser) return null;\n  return auth.currentUser.getIdToken(forceRefresh);\n}\n";
-            const marker = 'export type { FirebaseUser };';
-            firebase = firebase.includes(marker) ? firebase.replace(marker, helper + '\n' + marker) : firebase + helper;
-            write(firebasePath, firebase);
-          }
-
-          write('src/lib/apiClient.ts', `import { getCurrentIdToken } from './firebase';
-
-export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}) {
-  const token = await getCurrentIdToken();
-  const headers = new Headers(init.headers || {});
-  if (token) headers.set('Authorization', \`Bearer \${token}\`);
-  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  return fetch(input, { ...init, headers });
-}
-`);
-
-          const serverPath = 'server.ts';
-          let server = read(serverPath);
-          if (!server.includes("firebase-admin/app")) {
-            server = server.replace("import dotenv from 'dotenv';", "import dotenv from 'dotenv';\nimport { getApps, initializeApp, cert, applicationDefault } from 'firebase-admin/app';\nimport { getAuth as getAdminAuth } from 'firebase-admin/auth';\nimport { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';");
-          }
-
-          const oldAuth = server.indexOf('/**\n * Backend authorization middleware.');
-          if (oldAuth >= 0) {
-            const nextSection = server.indexOf('// ========================================================', oldAuth);
-            if (nextSection > oldAuth) server = server.slice(0, oldAuth) + server.slice(nextSection);
-          }
-
-          if (!server.includes('PRODUCTION_FIREBASE_AUTH_MIDDLEWARE')) {
-            const middleware = `\n// PRODUCTION_FIREBASE_AUTH_MIDDLEWARE\nlet firebaseAdminReady = false;\ntry {\n  if (!getApps().length) {\n    const projectId = process.env.FIREBASE_PROJECT_ID;\n    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;\n    const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\\\n/g, '\\n');\n    if (projectId && clientEmail && privateKey) initializeApp({ credential: cert({ projectId, clientEmail, privateKey }) });\n    else initializeApp({ credential: applicationDefault() });\n  }\n  firebaseAdminReady = true;\n} catch (error) { console.error('Firebase Admin initialization failed:', error); }\n\nasync function requireFirebaseUser(req: Request, res: Response, next: NextFunction) {\n  if (!firebaseAdminReady) return res.status(503).json({ success: false, error: 'Server authentication is not configured.' });\n  const header = req.headers.authorization || '';\n  if (!header.startsWith('Bearer ')) return res.status(401).json({ success: false, error: 'Authentication required.' });\n  try {\n    (req as any).firebaseUser = await getAdminAuth().verifyIdToken(header.slice(7), true);\n    next();\n  } catch { return res.status(401).json({ success: false, error: 'Invalid or expired Firebase session.' }); }\n}\n\nasync function requireAuthority(req: Request, res: Response, next: NextFunction) {\n  const uid = (req as any).firebaseUser?.uid;\n  if (!uid) return res.status(401).json({ success: false, error: 'Authentication required.' });\n  try {\n    const snap = await getAdminFirestore().collection('users').doc(uid).get();\n    const role = String(snap.data()?.role || 'citizen').toLowerCase();\n    if (!['authority', 'municipal_officer', 'admin'].includes(role)) return res.status(403).json({ success: false, error: 'Authority access required.' });\n    next();\n  } catch { return res.status(403).json({ success: false, error: 'Unable to verify authority permissions.' }); }\n}\n\napp.use(['/api/analyze-defect', '/api/verify-repair'], requireFirebaseUser);\napp.use('/api/authority', requireFirebaseUser, requireAuthority);\n`;
-            const marker = "app.use(express.json({ limit: '15mb' }));";
-            server = server.replace(marker, marker + middleware);
-          }
-
-          server = server.replace('const PORT = 3000;', 'const PORT = Number(process.env.PORT || 3000);');
-          if (!server.includes('export { app };')) server += '\nexport { app };\n';
-          write(serverPath, server);
-
-          for (const rel of ['src/components/Navbar.tsx', 'src/views/MunicipalAdminView.tsx']) {
-            if (!fs.existsSync(rel)) continue;
-            let x = read(rel);
-            x = x.replace('const { user, logout, openAuthModal, switchRole } = useAuth();', 'const { user, logout, openAuthModal } = useAuth();');
-            x = x.replace('const { user, showToast, switchRole, loginAsDemo } = useAuth();', 'const { user, showToast } = useAuth();');
-            x = x.replace(/^.*switchRole\([^;]*\);\s*$/gm, '');
-            x = x.replace(/^.*loginAsDemo\([^;]*\);\s*$/gm, '');
-            write(rel, x);
-          }
-
-          const profile = 'src/components/UserProfileModal.tsx';
-          if (fs.existsSync(profile)) {
-            let x = read(profile);
-            x = x.replace("c.escrowStatus === 'disbursed'", "(c as Complaint & { escrowStatus?: string }).escrowStatus === 'disbursed'");
-            write(profile, x);
-          }
-
-          const bad = '.github/workflows/production-hardening.yml';
-          if (fs.existsSync(bad)) fs.unlinkSync(bad);
-          NODE
-
-          node -e "const fs=require('fs'); const files=['src/views/ReportPotholeView.tsx','src/views/MunicipalAdminView.tsx','src/lib/verificationEngine.ts']; for(const f of files){if(!fs.existsSync(f))continue; let s=fs.readFileSync(f,'utf8'); if(!s.includes('apiClient')) s=(f.endsWith('.ts')?'import { apiFetch } from \'./apiClient\';\n':'import { apiFetch } from \'../lib/apiClient\';\n')+s; s=s.replace(/(?<![A-Za-z0-9_])fetch\((?=['\"]?\\/api\\/)/g,'apiFetch('); fs.writeFileSync(f,s)}"
-
-          npm install --package-lock=false
-          npm run lint
-          npm run build
-
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          if ! git diff --cached --quiet; then
-            git commit -m 'fix: complete production auth and build hardening [repair-2]'
-            git push origin production-hardening
-          fi
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npm run lint
+      - name: Build
+        run: npm run build
