@@ -3,6 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "description": "RoadSetu AI civic road reporting platform",
+  "keywords": ["civic-tech", "roads", "pothole-reporting"],
   "type": "module",
   "engines": { "node": ">=22" },
   "scripts": {
