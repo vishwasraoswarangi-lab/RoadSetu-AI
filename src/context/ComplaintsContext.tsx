@@ -5,13 +5,9 @@ import {
   doc,
   setDoc,
   updateDoc,
-  deleteDoc,
   onSnapshot,
   query,
   where,
-  orderBy,
-  handleFirestoreError,
-  OperationType,
   sanitizeForFirestore,
 } from '../lib/firebase';
 import { Complaint, VerificationResult, NotificationItem, DuplicateCheckResult } from '../types';
@@ -19,12 +15,13 @@ import { useAuth } from './AuthContext';
 import { calculateDistanceMeters } from '../utils/reverseGeocode';
 
 interface ComplaintsContextType {
-  complaints: Complaint[]; // All public complaints for live map
-  userComplaints: Complaint[]; // Only complaints reported by current authenticated user
+  complaints: Complaint[];
+  userComplaints: Complaint[];
   notifications: NotificationItem[];
   unreadNotificationCount: number;
   markNotificationAsRead: (notificationId: string) => Promise<void>;
   checkForDuplicates: (latitude: number, longitude: number) => DuplicateCheckResult;
+  supportComplaint: (complaintId: string) => Promise<void>;
   addComplaint: (data: {
     description: string;
     location: Complaint['location'];
@@ -56,160 +53,165 @@ interface ComplaintsContextType {
 }
 
 const ComplaintsContext = createContext<ComplaintsContextType | undefined>(undefined);
+const DUPLICATE_RADIUS_METERS = 50;
+const ACTIVE_STATUSES = new Set<Complaint['status']>([
+  'reported',
+  'ai_analyzed',
+  'routed',
+  'assigned',
+  'repair_in_progress',
+  'repair_claimed',
+  'suspicious',
+]);
 
 export const ComplaintsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, showToast } = useAuth();
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
-  // 1. Subscribe to public reports in Firestore
   useEffect(() => {
-    try {
-      const reportsRef = collection(db, 'reports');
-      const unsubscribe = onSnapshot(
-        reportsRef,
-        (snapshot) => {
-          const loaded: Complaint[] = [];
-          snapshot.forEach((docSnap) => {
-            const data = docSnap.data();
-            // Strict Data Integrity:
-            // 1. Missing afterImage MUST remain null (Awaiting post-repair evidence)
-            // 2. Reject any legacy cake photo URLs or food demo strings
-            const rawAfter = data.afterImage || data.repairImage || null;
-            const isLegacyCake =
-              typeof rawAfter === 'string' &&
-              (rawAfter.includes('photo-1578985545062') ||
-                rawAfter.toLowerCase().includes('cake') ||
-                rawAfter.toLowerCase().includes('pastry'));
+    const reportsRef = collection(db, 'reports');
+    return onSnapshot(
+      reportsRef,
+      (snapshot) => {
+        const loaded: Complaint[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          const rawAfter = data.afterImage || data.repairImage || null;
+          const isLegacyCake =
+            typeof rawAfter === 'string' &&
+            (rawAfter.includes('photo-1578985545062') ||
+              rawAfter.toLowerCase().includes('cake') ||
+              rawAfter.toLowerCase().includes('pastry'));
 
-            const sanitizedAfter = isLegacyCake ? null : (rawAfter || null);
-
-            loaded.push({
-              id: docSnap.id,
-              userId: data.reporterId || data.userId || '',
-              userEmail: data.reporterEmail || data.userEmail || '',
-              userName: data.reporterName || data.userName || 'Citizen',
-              description: data.description || '',
-              location: data.location || {
-                road: 'Corridor',
-                area: '',
-                city: '',
-                state: '',
-                formattedAddress: '',
-                latitude: 0,
-                longitude: 0,
-              },
-              defectType: data.defectType || 'Pothole',
-              severity: data.severity || 'High',
-              hazardScore: typeof data.hazardScore === 'number' ? data.hazardScore : 75,
-              confidence: data.confidence,
-              aiSummary: data.aiSummary,
-              recommendedAction: data.recommendedAction,
-              priority: data.priority || 'High P2',
-              department: data.assignedDepartment || data.department || 'Municipal Road Engineering',
-              status: data.status || 'reported',
-              beforeImage: data.beforeImage || data.imageUrl || '',
-              afterImage: sanitizedAfter,
-              repairStatus: data.repairStatus,
-              createdAt: data.createdAt || new Date().toISOString(),
-              updatedAt: data.updatedAt || new Date().toISOString(),
-              estimatedRepairDays: data.estimatedRepairDays || 2,
-              contractorClaimed: data.contractorClaimed || false,
-              contractorNotes: data.contractorNotes,
-              verification: isLegacyCake ? null : data.verification,
-            });
+          loaded.push({
+            id: docSnap.id,
+            userId: data.reporterId || data.userId || '',
+            userEmail: data.reporterEmail || data.userEmail || '',
+            userName: data.reporterName || data.userName || 'Citizen',
+            description: data.description || '',
+            location: data.location || {
+              road: 'Unknown road', area: '', city: '', state: '', formattedAddress: '', latitude: 0, longitude: 0,
+            },
+            defectType: data.defectType || 'Pothole',
+            severity: data.severity || 'High',
+            hazardScore: typeof data.hazardScore === 'number' ? data.hazardScore : 0,
+            confidence: typeof data.confidence === 'number' ? data.confidence : undefined,
+            aiSummary: data.aiSummary,
+            recommendedAction: data.recommendedAction,
+            priority: data.priority || 'Standard P3',
+            department: data.assignedDepartment || data.department || 'Municipal Road Engineering',
+            status: data.status || 'reported',
+            beforeImage: data.beforeImage || data.imageUrl || '',
+            afterImage: isLegacyCake ? null : (rawAfter || null),
+            repairStatus: data.repairStatus,
+            createdAt: data.createdAt || new Date().toISOString(),
+            updatedAt: data.updatedAt || new Date().toISOString(),
+            estimatedRepairDays: data.estimatedRepairDays || 2,
+            contractorClaimed: Boolean(data.contractorClaimed),
+            contractorNotes: data.contractorNotes,
+            verification: isLegacyCake ? undefined : data.verification,
           });
-
-          // Sort newest first
-          loaded.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-          setComplaints(loaded);
-        },
-        (error) => {
-          console.warn('Firestore reports subscription notice:', error);
-        }
-      );
-
-      return () => unsubscribe();
-    } catch (err) {
-      console.warn('Could not initialize reports snapshot:', err);
-    }
+        });
+        loaded.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setComplaints(loaded);
+      },
+      (error) => console.warn('Firestore reports subscription notice:', error)
+    );
   }, []);
 
-  // 2. Subscribe to user notifications in Firestore
   useEffect(() => {
     if (!user?.uid) {
       setNotifications([]);
       return;
     }
-
-    try {
-      const notifRef = collection(db, 'notifications');
-      const q = query(notifRef, where('userId', '==', user.uid));
-      const unsubscribe = onSnapshot(
-        q,
-        (snapshot) => {
-          const loaded: NotificationItem[] = [];
-          snapshot.forEach((docSnap) => {
-            const data = docSnap.data();
-            loaded.push({
-              id: docSnap.id,
-              userId: data.userId,
-              reportId: data.reportId,
-              title: data.title || 'Status Update',
-              message: data.message || '',
-              type: data.type || 'alert',
-              read: Boolean(data.read),
-              createdAt: data.createdAt || new Date().toISOString(),
-            });
+    const notifRef = collection(db, 'notifications');
+    const q = query(notifRef, where('userId', '==', user.uid));
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const loaded: NotificationItem[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          loaded.push({
+            id: docSnap.id,
+            userId: data.userId,
+            reportId: data.reportId,
+            title: data.title || 'Status Update',
+            message: data.message || '',
+            type: data.type || 'alert',
+            read: Boolean(data.read),
+            createdAt: data.createdAt || new Date().toISOString(),
           });
-          loaded.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-          setNotifications(loaded);
-        },
-        (error) => {
-          console.warn('Notifications snapshot error:', error);
-        }
-      );
-
-      return () => unsubscribe();
-    } catch (err) {
-      console.warn('Could not subscribe to notifications:', err);
-    }
+        });
+        loaded.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setNotifications(loaded);
+      },
+      (error) => console.warn('Notifications snapshot error:', error)
+    );
   }, [user?.uid]);
 
-  // Filter complaints so user sees ONLY their own complaints in personal sections
-  const userComplaints = complaints.filter(
-    (c) =>
-      user &&
-      (c.userId === user.uid ||
-        (user.email && c.userEmail === user.email) ||
-        (user.uid === 'citizen-demo-01' &&
-          (!c.userId || c.userId === 'citizen-demo-01' || c.userId === 'nRo5LSpjgEQVoUnH5nLwgRJtnLG3')))
-  );
+  const userComplaints = complaints.filter((c) => user?.uid === c.userId);
 
-  // Duplicate defect detection (< 50 meters distance)
   const checkForDuplicates = (latitude: number, longitude: number): DuplicateCheckResult => {
-    for (const c of complaints) {
-      // Check if complaint is active (not closed or verified long ago)
-      if (c.status !== 'closed' && c.location.latitude && c.location.longitude) {
-        const dist = calculateDistanceMeters(
-          latitude,
-          longitude,
-          c.location.latitude,
-          c.location.longitude
-        );
-        if (dist <= 50) {
-          return {
-            hasDuplicate: true,
-            existingComplaint: c,
-            distanceMeters: Math.round(dist),
-          };
-        }
-      }
+    if (!user?.uid || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return { hasDuplicate: false };
     }
-    return { hasDuplicate: false };
+
+    const candidates = complaints
+      .filter((c) => {
+        const lat = Number(c.location?.latitude);
+        const lng = Number(c.location?.longitude);
+        return (
+          ACTIVE_STATUSES.has(c.status) &&
+          Number.isFinite(lat) && Number.isFinite(lng) &&
+          lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
+        );
+      })
+      .map((c) => ({
+        complaint: c,
+        distance: calculateDistanceMeters(latitude, longitude, Number(c.location.latitude), Number(c.location.longitude)),
+      }))
+      .filter(({ distance }) => distance <= DUPLICATE_RADIUS_METERS)
+      .sort((a, b) => a.distance - b.distance || new Date(b.complaint.createdAt).getTime() - new Date(a.complaint.createdAt).getTime());
+
+    const own = candidates.find(({ complaint }) => complaint.userId === user.uid);
+    if (own) {
+      return {
+        hasDuplicate: true,
+        existingComplaint: own.complaint,
+        distanceMeters: Math.round(own.distance),
+        isOwnComplaint: true,
+      };
+    }
+
+    // A report from another citizen is informational only. The caller may submit separately.
+    return candidates[0]
+      ? {
+          hasDuplicate: false,
+          existingComplaint: candidates[0].complaint,
+          distanceMeters: Math.round(candidates[0].distance),
+          isOwnComplaint: false,
+        }
+      : { hasDuplicate: false };
   };
 
-  // Add a new complaint to Firestore
+  const supportComplaint = async (complaintId: string) => {
+    if (!user?.uid) throw new Error('You must be signed in to support a civic report.');
+    const complaint = complaints.find((c) => c.id === complaintId);
+    if (!complaint) throw new Error('Complaint not found.');
+    if (complaint.userId === user.uid) throw new Error('You cannot support your own complaint.');
+    if (!ACTIVE_STATUSES.has(complaint.status)) throw new Error('This complaint is no longer active.');
+
+    const supporterRef = doc(db, 'reports', complaintId, 'supporters', user.uid);
+    await setDoc(
+      supporterRef,
+      sanitizeForFirestore({ uid: user.uid, createdAt: new Date().toISOString() }),
+      { merge: false }
+    );
+    showToast('Existing report confirmed. Thank you for supporting the issue.', 'success');
+  };
+
   const addComplaint = async (data: {
     description: string;
     location: Complaint['location'];
@@ -223,20 +225,28 @@ export const ComplaintsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     estimatedRepairDays?: number;
     department?: string;
   }): Promise<Complaint> => {
-    if (!user) {
-      throw new Error('You must be signed in to submit a civic report.');
+    if (!user) throw new Error('You must be signed in to submit a civic report.');
+
+    const latitude = Number(data.location?.latitude);
+    const longitude = Number(data.location?.longitude);
+    if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+      throw new Error('We could not determine a valid report location. Please enable location access or choose a valid location.');
     }
 
-    // Generate unique complaint ID: RS-2026-MH-XXXXXX
-    const randomSeq = Math.floor(100000 + Math.random() * 900000);
-    const stateCode = data.location.state
-      ? data.location.state.slice(0, 2).toUpperCase()
-      : 'MH';
-    const complaintId = `RS-2026-${stateCode}-${randomSeq}`;
+    // Re-check the duplicate immediately before writing. Frontend warnings are UX only;
+    // this second check prevents stale client state from creating an obvious same-user duplicate.
+    const latestDuplicate = checkForDuplicates(latitude, longitude);
+    if (latestDuplicate.hasDuplicate && latestDuplicate.existingComplaint?.userId === user.uid) {
+      throw new Error('You already reported a nearby issue. Open the existing report or add evidence instead.');
+    }
 
+    const randomSeq = Math.floor(100000 + Math.random() * 900000);
+    const stateCode = data.location.state?.slice(0, 2).toUpperCase() || 'XX';
+    const complaintId = `RS-${new Date().getFullYear()}-${stateCode}-${randomSeq}`;
     const now = new Date().toISOString();
     const severity = data.severity || 'High';
-    const hazardScore = data.hazardScore || (severity === 'Critical' ? 92 : severity === 'High' ? 76 : 54);
+    const hazardScore = data.hazardScore ?? (severity === 'Critical' ? 92 : severity === 'High' ? 76 : 54);
+    const confidence = data.confidence;
 
     const newComplaint: Complaint = {
       id: complaintId,
@@ -244,11 +254,11 @@ export const ComplaintsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       userEmail: user.email,
       userName: user.displayName || 'Citizen',
       description: data.description,
-      location: data.location,
+      location: { ...data.location, latitude, longitude },
       defectType: data.defectType || 'Pothole',
       severity,
       hazardScore,
-      confidence: data.confidence || 88,
+      confidence,
       aiSummary: data.aiSummary,
       recommendedAction: data.recommendedAction,
       priority: severity === 'Critical' ? 'Urgent P1' : severity === 'High' ? 'High P2' : 'Standard P3',
@@ -262,7 +272,6 @@ export const ComplaintsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     try {
-      // 1. Write report to Firestore with safe fallback fields and sanitization
       const reportRef = doc(db, 'reports', complaintId);
       const reportPayload = sanitizeForFirestore({
         id: complaintId,
@@ -273,55 +282,51 @@ export const ComplaintsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         imageUrl: newComplaint.beforeImage || '',
         beforeImage: newComplaint.beforeImage || '',
         location: {
-          road: newComplaint.location?.road || 'Public Corridor',
-          area: newComplaint.location?.area || '',
-          landmark: newComplaint.location?.landmark || '',
-          city: newComplaint.location?.city || 'Municipal Area',
-          state: newComplaint.location?.state || '',
-          country: newComplaint.location?.country || 'India',
-          formattedAddress: newComplaint.location?.formattedAddress || '',
-          latitude: Number(newComplaint.location?.latitude) || 19.2312,
-          longitude: Number(newComplaint.location?.longitude) || 72.9765,
+          road: newComplaint.location.road || '',
+          area: newComplaint.location.area || '',
+          landmark: newComplaint.location.landmark || '',
+          city: newComplaint.location.city || '',
+          state: newComplaint.location.state || '',
+          country: newComplaint.location.country || 'India',
+          formattedAddress: newComplaint.location.formattedAddress || '',
+          latitude,
+          longitude,
         },
         defectType: newComplaint.defectType || 'Pothole',
-        severity: newComplaint.severity || 'High',
-        hazardScore: newComplaint.hazardScore || 75,
-        confidence: newComplaint.confidence || 85,
-        aiSummary: newComplaint.aiSummary || 'Civic road surface defect reported.',
-        recommendedAction: newComplaint.recommendedAction || 'Municipal road inspection and patching.',
-        priority: newComplaint.priority || 'Standard P3',
-        assignedDepartment: newComplaint.department || 'Municipal Road Engineering',
-        status: newComplaint.status || 'reported',
+        severity: newComplaint.severity,
+        hazardScore: newComplaint.hazardScore,
+        ...(confidence !== undefined ? { confidence } : {}),
+        ...(newComplaint.aiSummary ? { aiSummary: newComplaint.aiSummary } : {}),
+        ...(newComplaint.recommendedAction ? { recommendedAction: newComplaint.recommendedAction } : {}),
+        priority: newComplaint.priority,
+        assignedDepartment: newComplaint.department,
+        status: newComplaint.status,
         createdAt: now,
         updatedAt: now,
-        estimatedRepairDays: newComplaint.estimatedRepairDays || 2,
+        estimatedRepairDays: newComplaint.estimatedRepairDays,
         repairStatus: 'pending_assignment',
       });
 
       await setDoc(reportRef, reportPayload);
 
-      // 2. Create confirmation notification for user
-      const notifId = `NOTIF-${Date.now()}`;
-      const notifRef = doc(db, 'notifications', notifId);
+      const notifId = `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
       await setDoc(
-        notifRef,
+        doc(db, 'notifications', notifId),
         sanitizeForFirestore({
           id: notifId,
           userId: user.uid,
           reportId: complaintId,
           title: 'Complaint Registered',
-          message: `Your complaint ${complaintId} at ${data.location?.road || 'Corridor'} has been registered and routed to ${newComplaint.department}.`,
+          message: `Your complaint ${complaintId} has been registered and routed to ${newComplaint.department}.`,
           type: 'submission',
           read: false,
           createdAt: now,
         })
       );
 
-      // 3. Update user reports count in Firestore users collection
-      const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, {
+      await updateDoc(doc(db, 'users', user.uid), {
         reportsCount: (user.reportsCount || 0) + 1,
-      }).catch((e) => console.warn('Could not increment user count:', e));
+      }).catch((error) => console.warn('Could not increment user count:', error));
 
       showToast(`Complaint ${complaintId} submitted successfully!`, 'success');
       return newComplaint;
@@ -332,180 +337,105 @@ export const ComplaintsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  const updateComplaintStatus = async (
-    id: string,
-    status: Complaint['status'],
-    extra?: Partial<Complaint>
-  ) => {
-    // Optimistic local update
-    setComplaints((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? {
-              ...c,
-              status,
-              updatedAt: new Date().toISOString(),
-              ...extra,
-            }
-          : c
-      )
-    );
-
+  const updateComplaintStatus = async (id: string, status: Complaint['status'], extra?: Partial<Complaint>) => {
+    setComplaints((prev) => prev.map((c) => c.id === id ? { ...c, status, updatedAt: new Date().toISOString(), ...extra } : c));
     try {
-      const reportRef = doc(db, 'reports', id);
-      const updatePayload = sanitizeForFirestore({
-        status,
-        updatedAt: new Date().toISOString(),
-        ...extra,
-      });
-      await updateDoc(reportRef, updatePayload);
-
-      // Create notification for reporter if they own it
+      await updateDoc(doc(db, 'reports', id), sanitizeForFirestore({ status, updatedAt: new Date().toISOString(), ...extra }));
       const comp = complaints.find((c) => c.id === id);
       if (comp?.userId) {
-        const notifId = `NOTIF-${Date.now()}`;
-        const notifRef = doc(db, 'notifications', notifId);
-        let title = 'Complaint Updated';
-        let message = `Status for ${id} changed to ${status.replace('_', ' ')}.`;
-
-        if (status === 'repair_in_progress') {
-          title = 'Repair Crew Dispatched';
-          message = `Municipal repair jetpatcher crew has started work on ${id}.`;
-        } else if (status === 'verified') {
-          title = 'Repair Verified & Closed';
-          message = `Repair for complaint ${id} has been verified and permanently recorded.`;
-        }
-
-        await setDoc(
-          notifRef,
-          sanitizeForFirestore({
-            id: notifId,
-            userId: comp.userId,
-            reportId: id,
-            title,
-            message,
-            type: status === 'verified' ? 'verification' : 'repair',
-            read: false,
-            createdAt: new Date().toISOString(),
-          })
-        ).catch((e) => console.warn('Notification save error:', e));
+        const notifId = `NOTIF-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        await setDoc(doc(db, 'notifications', notifId), sanitizeForFirestore({
+          id: notifId,
+          userId: comp.userId,
+          reportId: id,
+          title: 'Complaint Updated',
+          message: `Status for ${id} changed to ${status.replace('_', ' ')}.`,
+          type: status === 'verified' ? 'verification' : 'repair',
+          read: false,
+          createdAt: new Date().toISOString(),
+        })).catch((error) => console.warn('Notification save error:', error));
       }
-
       showToast(`Report ${id} updated to ${status.replace('_', ' ')}.`, 'info');
     } catch (error) {
       console.error('Failed to update complaint status in Firestore:', error);
-      showToast('Status updated locally.', 'info');
+      showToast('Status update failed to persist.', 'error');
+      throw error;
     }
   };
 
   const updateVerification = async (id: string, verification: VerificationResult) => {
     const isVerified = verification.status === 'verified';
-    // Optimistic local update
-    setComplaints((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? {
-              ...c,
-              status: isVerified ? 'verified' : 'suspicious',
-              verification,
-              updatedAt: new Date().toISOString(),
-            }
-          : c
-      )
-    );
-
+    setComplaints((prev) => prev.map((c) => c.id === id ? {
+      ...c,
+      status: isVerified ? 'verified' : 'suspicious',
+      verification,
+      updatedAt: new Date().toISOString(),
+    } : c));
     try {
-      const reportRef = doc(db, 'reports', id);
-      await updateDoc(
-        reportRef,
-        sanitizeForFirestore({
-          status: isVerified ? 'verified' : 'suspicious',
-          verificationStatus: verification.status,
-          verificationScore: verification.overallScore,
-          verification,
-          updatedAt: new Date().toISOString(),
-        })
-      );
-
-      showToast(
-        isVerified ? `Repair ${id} verified successfully!` : `Repair ${id} flagged as suspicious.`,
-        isVerified ? 'success' : 'error'
-      );
+      await updateDoc(doc(db, 'reports', id), sanitizeForFirestore({
+        status: isVerified ? 'verified' : 'suspicious',
+        verificationStatus: verification.status,
+        verificationScore: verification.overallScore,
+        verification,
+        updatedAt: new Date().toISOString(),
+      }));
+      showToast(isVerified ? `Repair ${id} verified successfully!` : `Repair ${id} flagged as suspicious.`, isVerified ? 'success' : 'error');
     } catch (error) {
       console.error('Failed to update verification in Firestore:', error);
-      showToast('Verification recorded locally.', 'info');
+      showToast('Verification update failed to persist.', 'error');
+      throw error;
     }
   };
 
   const markNotificationAsRead = async (notificationId: string) => {
-    try {
-      const notifRef = doc(db, 'notifications', notificationId);
-      await updateDoc(notifRef, { read: true });
-    } catch (error) {
+    await updateDoc(doc(db, 'notifications', notificationId), { read: true }).catch((error) => {
       console.warn('Could not mark notification as read:', error);
-    }
+    });
   };
 
-  const getComplaintById = (id: string) => {
-    return complaints.find((c) => c.id === id);
-  };
+  const getComplaintById = (id: string) => complaints.find((c) => c.id === id);
 
-  // Dynamically calculate stats based strictly on actual Firestore reports
-  const totalReported = userComplaints.length;
-  const awaitingRepair = userComplaints.filter(
-    (c) =>
-      c.status === 'reported' ||
-      c.status === 'ai_analyzed' ||
-      c.status === 'routed' ||
-      c.status === 'assigned'
-  ).length;
-  const inRepair = userComplaints.filter(
-    (c) => c.status === 'repair_in_progress' || c.status === 'repair_claimed'
-  ).length;
-  const verifiedClosed = userComplaints.filter(
-    (c) => c.status === 'verified' || c.status === 'closed'
-  ).length;
-
+  const awaitingRepair = userComplaints.filter((c) => ['reported', 'ai_analyzed', 'routed', 'assigned'].includes(c.status)).length;
+  const inRepair = userComplaints.filter((c) => ['repair_in_progress', 'repair_claimed'].includes(c.status)).length;
+  const verifiedClosed = userComplaints.filter((c) => ['verified', 'closed'].includes(c.status)).length;
   const allPlatformReportsCount = complaints.length;
   const allPlatformVerifiedCount = complaints.filter((c) => c.status === 'verified').length;
-  const totalRepaired = complaints.filter(
-    (c) => c.status === 'repair_in_progress' || c.status === 'repair_claimed'
-  ).length;
+  const totalRepaired = complaints.filter((c) => ['repair_in_progress', 'repair_claimed'].includes(c.status)).length;
   const totalVerified = allPlatformVerifiedCount;
   const suspiciousCount = complaints.filter((c) => c.status === 'suspicious').length;
-  // Estimate taxpayer funds protected from flagged fraudulent contractor submissions (~₹45,000 per asphalt patch)
-  const fraudBlockedAmount = suspiciousCount > 0 ? suspiciousCount * 45000 : 1840000;
-  const avgConfidence = 94.8;
-
+  const confidenceValues = complaints.map((c) => c.confidence).filter((value): value is number => typeof value === 'number');
+  const avgConfidence = confidenceValues.length
+    ? Number((confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length).toFixed(1))
+    : 0;
+  const fraudBlockedAmount = suspiciousCount * 45000;
   const unreadNotificationCount = notifications.filter((n) => !n.read).length;
 
   return (
-    <ComplaintsContext.Provider
-      value={{
-        complaints,
-        userComplaints,
-        notifications,
-        unreadNotificationCount,
-        markNotificationAsRead,
-        checkForDuplicates,
-        addComplaint,
-        updateComplaintStatus,
-        updateVerification,
-        getComplaintById,
-        stats: {
-          totalReported: allPlatformReportsCount || totalReported,
-          totalRepaired,
-          totalVerified,
-          awaitingRepair,
-          inRepair,
-          verifiedClosed,
-          allPlatformReportsCount,
-          allPlatformVerifiedCount,
-          fraudBlockedAmount,
-          avgConfidence,
-        },
-      }}
-    >
+    <ComplaintsContext.Provider value={{
+      complaints,
+      userComplaints,
+      notifications,
+      unreadNotificationCount,
+      markNotificationAsRead,
+      checkForDuplicates,
+      supportComplaint,
+      addComplaint,
+      updateComplaintStatus,
+      updateVerification,
+      getComplaintById,
+      stats: {
+        totalReported: allPlatformReportsCount || userComplaints.length,
+        totalRepaired,
+        totalVerified,
+        awaitingRepair,
+        inRepair,
+        verifiedClosed,
+        allPlatformReportsCount,
+        allPlatformVerifiedCount,
+        fraudBlockedAmount,
+        avgConfidence,
+      },
+    }}>
       {children}
     </ComplaintsContext.Provider>
   );
@@ -513,8 +443,6 @@ export const ComplaintsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
 export function useComplaints(): ComplaintsContextType {
   const context = useContext(ComplaintsContext);
-  if (!context) {
-    throw new Error('useComplaints must be used within a ComplaintsProvider');
-  }
+  if (!context) throw new Error('useComplaints must be used within a ComplaintsProvider');
   return context;
 }
