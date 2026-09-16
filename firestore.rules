@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isAuthority() {
+      return isSignedIn() && (
+        isAdmin() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['authority', 'municipal_officer', 'admin'])
+      );
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAuthority());
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) && (
+        // Prevent normal users from self-promoting to admin or authority
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'clearanceLevel']) || isAdmin()
+      );
+    }
+
+    // Reports Collection - Public transparency for map markers, civic reporting and municipal triage
+    match /reports/{reportId} {
+      allow read: if true; // Public safe reading for live city map and civic transparency
+      allow create: if isSignedIn() || (
+        request.resource.data.keys().hasAll(['defectType', 'location'])
+      );
+      allow update: if isAuthority() || (
+        isSignedIn() &&
+        (resource.data.userId == request.auth.uid || resource.data.reporterId == request.auth.uid) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'status', 'escrowStatus', 'disbursedAmount', 'contractorId', 'contractorName', 'payoutAmount'
+        ])
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Notifications Collection
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // Repair Updates Collection
+    match /repair_updates/{updateId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+  }
+}

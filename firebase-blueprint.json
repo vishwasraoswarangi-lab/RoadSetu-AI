@@ -1,0 +1,100 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile containing civic registration and statistics",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["citizen", "municipal_officer", "contractor", "admin"] },
+        "createdAt": { "type": "string" },
+        "reportsCount": { "type": "number" },
+        "verifiedRepairsCount": { "type": "number" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "Civic road defect complaint and repair verification tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "reporterId": { "type": "string" },
+        "reporterEmail": { "type": "string" },
+        "reporterName": { "type": "string" },
+        "description": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "imageUrls": { "type": "array" },
+        "location": { "type": "object" },
+        "defectType": { "type": "string" },
+        "severity": { "type": "string" },
+        "hazardScore": { "type": "number" },
+        "confidence": { "type": "number" },
+        "aiSummary": { "type": "string" },
+        "status": { "type": "string" },
+        "assignedDepartment": { "type": "string" },
+        "repairStatus": { "type": "string" },
+        "beforeImage": { "type": "string" },
+        "repairImage": { "type": "string" },
+        "verificationStatus": { "type": "string" },
+        "verificationScore": { "type": "number" },
+        "duplicateGroupId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "reporterId", "description", "location", "status", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Civic alerts and status updates for user reports",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "reportId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title", "message", "read", "createdAt"]
+    },
+    "RepairUpdate": {
+      "title": "RepairUpdate",
+      "description": "Repair log entry submitted by municipal crews or contractors",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "reportId": { "type": "string" },
+        "contractorName": { "type": "string" },
+        "contractorId": { "type": "string" },
+        "repairImage": { "type": "string" },
+        "repairDescription": { "type": "string" },
+        "submittedAt": { "type": "string" }
+      },
+      "required": ["id", "reportId", "repairImage", "submittedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile collection"
+    },
+    "/reports/{reportId}": {
+      "schema": "Report",
+      "description": "Civic pothole reports and tracking ledger"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications"
+    },
+    "/repair_updates/{updateId}": {
+      "schema": "RepairUpdate",
+      "description": "Contractor repair submissions"
+    }
+  }
+}

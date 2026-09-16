@@ -1,0 +1,10 @@
+{
+  "name": "RoadSetu AI",
+  "description": "RoadSetu AI (\"Report it. Track it. Verify it.\"): a premium GovTech civic accountability platform for AI-powered pothole reporting, repair tracking, and visual repair verification.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
