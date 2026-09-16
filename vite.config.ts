@@ -84,10 +84,12 @@ function hardenReportFlow(): Plugin {
       }
 
       if (id.endsWith('/src/context/ComplaintsContext.tsx')) {
-        const guardPattern = /if \(latestDuplicate\.hasDuplicate && latestDuplicate\.existingComplaint\?\.userId === user\.uid\) \{\s*throw new Error\('You already reported a nearby issue\. Open the existing report or add evidence instead\.'\);\s*\}/;
-        const match = code.match(guardPattern);
-        if (!match) throw new Error('RoadSetu duplicate validation transform could not locate duplicate guard.');
-        const replacement = [
+        const marker = "const latestDuplicate = checkForDuplicates(latitude, longitude);";
+        const start = code.indexOf(marker);
+        const end = code.indexOf("\n\n    const randomSeq =", start);
+        if (start === -1 || end === -1) throw new Error('RoadSetu duplicate validation transform could not locate duplicate section.');
+        const hardenedDuplicateGuard = [
+          "const latestDuplicate = checkForDuplicates(latitude, longitude);",
           "const existingType = String(latestDuplicate.existingComplaint?.defectType || '').toLowerCase().trim();",
           "const incomingType = String(data.defectType || '').toLowerCase().trim();",
           "const sameDefect = Boolean(existingType && incomingType && (existingType === incomingType || existingType.includes(incomingType) || incomingType.includes(existingType)));",
@@ -95,7 +97,7 @@ function hardenReportFlow(): Plugin {
           "  throw new Error('You already reported this same nearby defect. Open the existing report or add evidence instead.');",
           "}",
         ].join('\n    ');
-        return { code: code.replace(guardPattern, replacement), map: null };
+        return { code: code.slice(0, start) + hardenedDuplicateGuard + code.slice(end), map: null };
       }
     },
   };
