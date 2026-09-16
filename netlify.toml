@@ -20,3 +20,5 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Keep production deployments sourced from the main branch configuration.
