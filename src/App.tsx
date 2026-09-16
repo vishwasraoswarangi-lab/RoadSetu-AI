@@ -9,7 +9,7 @@ import { Toast } from './components/Toast';
 import { ShieldAlert, Building2, Lock, ArrowRight } from 'lucide-react';
 import { LandingView } from './views/LandingView';
 import { DashboardView } from './views/DashboardView';
-import { ReportPotholeView } from './views/ReportPotholeView';
+import { ReportFlowView } from './views/ReportFlowView';
 import { MyComplaintsView } from './views/MyComplaintsView';
 import { LiveMapView } from './views/LiveMapView';
 import { VerificationCenterView } from './views/VerificationCenterView';
@@ -32,7 +32,7 @@ const MainAppContent: React.FC = () => {
     <main className="flex-1">
       {currentView === 'landing' && <LandingView onNavigate={handleNavigate} />}
       {currentView === 'dashboard' && <DashboardView onNavigate={handleNavigate} onSelectComplaintForVerification={handleSelectComplaintForVerification} />}
-      {currentView === 'report' && <ReportPotholeView onNavigate={handleNavigate} />}
+      {currentView === 'report' && <ReportFlowView onNavigate={handleNavigate} />}
       {currentView === 'my-complaints' && <MyComplaintsView onNavigate={handleNavigate} onSelectComplaintForVerification={handleSelectComplaintForVerification} />}
       {currentView === 'map' && <LiveMapView onNavigate={handleNavigate} onSelectComplaintForVerification={handleSelectComplaintForVerification} />}
       {currentView === 'verification' && <VerificationCenterView onNavigate={handleNavigate} selectedComplaintId={selectedComplaintForVerification} />}
