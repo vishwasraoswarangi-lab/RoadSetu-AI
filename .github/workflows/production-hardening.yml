@@ -1,0 +1,248 @@
+name: Apply production hardening
+
+on:
+  push:
+    branches: [production-hardening]
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    if: ${{ !contains(github.event.head_commit.message, '[hardening-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: production-hardening
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply security and deployment changes
+        run: |
+          python3 <<'PY'
+          import json, re
+          from pathlib import Path
+
+          root = Path('.')
+
+          # package.json
+          p = root/'package.json'
+          data = json.loads(p.read_text())
+          deps = data.setdefault('dependencies', {})
+          deps['firebase-admin'] = '^14.4.0'
+          deps['serverless-http'] = '^3.2.0'
+          deps['@netlify/functions'] = '^4.2.0'
+          data['engines'] = {'node': '>=22'}
+          p.write_text(json.dumps(data, indent=2) + '\n')
+
+          # Netlify: Vite frontend + Express API as a serverless function.
+          (root/'netlify.toml').write_text('''[build]\n  command = "npm run build"\n  publish = "dist"\n\n[functions]\n  directory = "netlify/functions"\n  node_bundler = "esbuild"\n  external_node_modules = ["express", "firebase-admin", "serverless-http"]\n\n[[redirects]]\n  from = "/api/*"\n  to = "/.netlify/functions/api/:splat"\n  status = 200\n  force = true\n\n[[redirects]]\n  from = "/*"\n  to = "/index.html"\n  status = 200\n''')
+
+          # Server: secure Firebase token verification and Netlify-safe startup.
+          s = root/'server.ts'
+          text = s.read_text()
+          if "firebase-admin/app" not in text:
+              text = text.replace("import dotenv from 'dotenv';", "import dotenv from 'dotenv';\nimport { getApps, initializeApp, cert, applicationDefault } from 'firebase-admin/app';\nimport { getAuth as getAdminAuth } from 'firebase-admin/auth';\nimport { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';")
+
+          marker = "app.use(express.json({ limit: '15mb' }));"
+          auth_block = r'''
+
+// Server-side Firebase Admin authentication. Never trust role headers or request-body roles.
+let adminReady = false;
+try {
+  if (!getApps().length) {
+    const projectId = process.env.FIREBASE_PROJECT_ID;
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\\n');
+    if (projectId && clientEmail && privateKey) {
+      initializeApp({ credential: cert({ projectId, clientEmail, privateKey }) });
+    } else {
+      initializeApp({ credential: applicationDefault() });
+    }
+  }
+  adminReady = true;
+} catch (error) {
+  console.error('Firebase Admin initialization failed. Protected API routes will remain unavailable.', error);
+}
+
+async function verifyFirebaseBearer(req: Request, res: Response, next: NextFunction) {
+  if (!adminReady) {
+    return res.status(503).json({ success: false, error: 'Server authentication is not configured.' });
+  }
+  const header = req.headers.authorization || '';
+  if (!header.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Authentication required.', code: 'AUTH_REQUIRED' });
+  }
+  try {
+    const decoded = await getAdminAuth().verifyIdToken(header.slice(7), true);
+    (req as any).firebaseUser = decoded;
+    next();
+  } catch {
+    return res.status(401).json({ success: false, error: 'Invalid or expired Firebase session.', code: 'AUTH_INVALID' });
+  }
+}
+
+async function verifiedRole(uid: string): Promise<string> {
+  const snap = await getAdminFirestore().collection('users').doc(uid).get();
+  return (snap.data()?.role || 'citizen').toString().toLowerCase();
+}
+
+// AI endpoints require a real authenticated Firebase session.
+app.use(['/api/analyze-defect', '/api/verify-repair'], verifyFirebaseBearer);
+
+// Authority routes use the verified Firebase UID and Firestore role. The legacy route middleware below
+// remains as a second gate, but its role header is overwritten only after token verification.
+app.use('/api/authority', async (req: Request, res: Response, next: NextFunction) => {
+  await verifyFirebaseBearer(req, res, async () => {
+    try {
+      const role = await verifiedRole((req as any).firebaseUser.uid);
+      req.headers['x-user-role'] = role;
+      next();
+    } catch {
+      return res.status(403).json({ success: false, error: 'Unable to resolve account permissions.' });
+    }
+  });
+});
+'''
+          if 'Server-side Firebase Admin authentication' not in text:
+              text = text.replace(marker, marker + auth_block, 1)
+
+          # Secure the profile endpoint by adding an earlier route that returns the authenticated user's real profile.
+          profile_marker = "app.post('/api/auth/profile', (req: Request, res: Response) => {"
+          secure_profile = r'''app.post('/api/auth/profile', verifyFirebaseBearer, async (req: Request, res: Response) => {
+  try {
+    const fbUser = (req as any).firebaseUser;
+    const snap = await getAdminFirestore().collection('users').doc(fbUser.uid).get();
+    const data = snap.data() || {};
+    const role = (data.role || 'citizen').toString();
+    return res.json({
+      success: true,
+      userId: fbUser.uid,
+      role: role.toUpperCase(),
+      profile: {
+        uid: fbUser.uid,
+        displayName: data.displayName || fbUser.name || 'Citizen',
+        email: fbUser.email || data.email || '',
+        role,
+        department: data.department || null,
+        designation: data.designation || null,
+        jurisdiction: data.jurisdiction || null,
+        assignedWards: data.assignedWards || [],
+        permissions: data.permissions || [],
+      },
+    });
+  } catch {
+    return res.status(500).json({ success: false, error: 'Unable to load authenticated profile.' });
+  }
+});
+
+'''
+          if secure_profile not in text:
+              text = text.replace(profile_marker, secure_profile + profile_marker, 1)
+
+          # No fake identities / fallback personas in the legacy profile endpoint.
+          text = re.sub(r"if \(isAuth\) \{\n\s*return res\.json\(\{.*?\n\s*\}\);\n\s*\}\n\n\s*return res\.json\(\{.*?\n\s*\}\);\n\}\);", "return res.status(410).json({ success: false, error: 'Legacy profile endpoint disabled. Use Firebase-authenticated profile.' });\n});", text, count=1, flags=re.S)
+
+          # Never run a long-lived listener inside a Netlify Function.
+          text = text.replace('const PORT = 3000;', "const PORT = Number(process.env.PORT || 3000);")
+          text = text.replace('async function startServer() {', 'export async function startServer() {')
+          text = text.replace('startServer();', "if (!process.env.NETLIFY) {\n  startServer();\n}\n\nexport { app };")
+          s.write_text(text)
+
+          # Netlify Function adapter.
+          nf = root/'netlify/functions/api.ts'
+          nf.parent.mkdir(parents=True, exist_ok=True)
+          nf.write_text('''import serverless from 'serverless-http';\nimport { app } from '../../server';\n\nexport const handler = serverless(app);\n''')
+
+          # Firebase client: expose a helper for authenticated API calls.
+          f = root/'src/lib/firebase.ts'
+          ft = f.read_text()
+          if 'getCurrentIdToken' not in ft:
+              export_marker = "export {\n"
+              helper = "export async function getCurrentIdToken(forceRefresh = false): Promise<string | null> {\n  if (!auth?.currentUser) return null;\n  return auth.currentUser.getIdToken(forceRefresh);\n}\n\n"
+              ft = ft.replace(export_marker, helper + export_marker, 1)
+              f.write_text(ft)
+
+          # Remove remaining demo-login affordances from AuthModal.
+          a = root/'src/components/AuthModal.tsx'
+          at = a.read_text()
+          at = at.replace('    loginAsDemo,\n', '')
+          at = re.sub(r"\n  const handleDemoSignIn = async \(\) => \{.*?\n  \};\n", "\n", at, flags=re.S)
+          at = re.sub(r"\n          \{authModalMode !== 'forgot' && \(\n            <div className=\"mt-4 space-y-2\">.*?</div>\n          \)\}\n", "\n", at, count=1, flags=re.S)
+          signup_guard = """    if (authModalMode === 'signup' && accountType === 'authority') {\n      setFormError('Municipal authority accounts are provisioned by the system administrator. Please use an authorized officer account.');\n      return;\n    }\n\n"""
+          if signup_guard not in at:
+              at = at.replace("    if (authModalMode === 'signup') {", signup_guard + "    if (authModalMode === 'signup') {", 1)
+          at = at.replace("          accountType === 'authority' ? 'municipal_officer' : 'citizen'", "          'citizen'")
+          a.write_text(at)
+
+          # Remove client-side authority persona switching and fake officer identity labels.
+          m = root/'src/views/MunicipalAdminView.tsx'
+          mt = m.read_text()
+          mt = mt.replace('  const { user, showToast, switchRole, loginAsDemo } = useAuth();', '  const { user, showToast } = useAuth();')
+          mt = re.sub(r"\n\s*\{!isAuthority && \(.*?</div>\n\s*\)\}\n", "\n", mt, count=1, flags=re.S)
+          mt = mt.replace("{isAuthority && (\n              <span className=\"inline-flex items-center space-x-1.5 rounded-full border border-amber-500/40 bg-amber-950/60 px-3 py-1.5 text-xs font-bold text-amber-300\">\n                <span className=\"h-2 w-2 rounded-full bg-amber-400 animate-pulse\" />\n                <span>Executive Engineer (Zone 2)</span>\n              </span>\n            )}", "{isAuthority && (\n              <span className=\"inline-flex items-center space-x-1.5 rounded-full border border-amber-500/40 bg-amber-950/60 px-3 py-1.5 text-xs font-bold text-amber-300\">\n                <span className=\"h-2 w-2 rounded-full bg-amber-400 animate-pulse\" />\n                <span>Authorized Municipal Officer</span>\n              </span>\n            )}")
+          mt = re.sub(r"\n\s*const DEFAULT_AFTER_REPAIRS = \[.*?\];\n", "\n", mt, flags=re.S)
+          mt = mt.replace("useState<string>(DEFAULT_AFTER_REPAIRS[0])", "useState<string>('')")
+          m.write_text(mt)
+
+          # Remove canned test scenarios from the verification UI and make it use authenticated backend verification.
+          v = root/'src/views/VerificationCenterView.tsx'
+          vt = v.read_text()
+          vt = re.sub(r"\n// Preset evidence images for testing verification scenarios.*?\n\];\n", "\n", vt, count=1, flags=re.S)
+          vt = re.sub(r"\n\s*\{\/\* Interactive Acceptance Test Scenario Bar \*\/\}.*?\n\s*\{\/\*", "\n        {/*", vt, count=1, flags=re.S)
+          v.write_text(vt)
+
+          # Remove fake default sample photo/location/description from the reporting screen.
+          r = root/'src/views/ReportPotholeView.tsx'
+          rt = r.read_text()
+          rt = re.sub(r"\nconst SAMPLE_PHOTOS = \[.*?\n\];\n", "\n", rt, count=1, flags=re.S)
+          rt = rt.replace("useState<string>(SAMPLE_PHOTOS[0].url)", "useState<string>('')")
+          rt = rt.replace("useState<'gps' | 'ip' | 'search' | 'manual'>('ip')", "useState<'gps' | 'ip' | 'search' | 'manual'>('gps')")
+          rt = re.sub(r"const \[humanLocation, setHumanLocation\] = useState<HumanLocation>\(\{.*?\n  \}\);", "const [humanLocation, setHumanLocation] = useState<HumanLocation>({\n    road: '', area: '', landmark: '', city: '', state: '', country: 'India',\n    formattedAddress: '', latitude: 0, longitude: 0,\n  });", rt, count=1, flags=re.S)
+          rt = re.sub(r"const \[description, setDescription\] = useState\(\n\s*'[^']*'\n\s*\);", "const [description, setDescription] = useState('');", rt, count=1)
+          # Replace the hard-coded corridor fallback after GPS failure with an honest error state.
+          rt = re.sub(r"\s*// Set fallback to default Thane/Mumbai location.*?setLocationSuccessText\('Corridor default set'\);", "\n          setLocationError(res.errorMessage || 'Live location could not be acquired. Use Search Location or enter the road manually.');\n          setLocationSuccessText('Location required');", rt, count=1, flags=re.S)
+          # Never display raw lat/lon as the user-facing address.
+          rt = rt.replace("formattedAddress: `${res.city ? `${res.city}, ` : ''}Lat: ${res.coords.latitude.toFixed(4)}, Lon: ${res.coords.longitude.toFixed(4)}`", "formattedAddress: 'GPS captured. Address lookup unavailable; please confirm the road using Search Location.'")
+          # Require a real photo and location before AI analysis.
+          guard = """    if (!base64Image) {\n      showToast('Please upload a real road-defect photo before analysis.', 'error');\n      return;\n    }\n    if (!humanLocation.road || !humanLocation.city || !humanLocation.latitude || !humanLocation.longitude) {\n      showToast('Please capture GPS or search/select the complaint location first.', 'error');\n      return;\n    }\n    if (!description.trim()) {\n      showToast('Please describe the road defect before submitting.', 'error');\n      return;\n    }\n\n"""
+          if guard not in rt:
+              rt = rt.replace("    if (!overrideDuplicate) {", guard + "    if (!overrideDuplicate) {", 1)
+          r.write_text(rt)
+
+          # Add an authenticated fetch helper.
+          api = root/'src/lib/apiClient.ts'
+          api.write_text('''import { getCurrentIdToken } from './firebase';\n\nexport async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}) {\n  const token = await getCurrentIdToken();\n  const headers = new Headers(init.headers || {});\n  if (token) headers.set('Authorization', `Bearer ${token}`);\n  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');\n  return fetch(input, { ...init, headers });\n}\n''')
+
+          # Switch application API calls to the authenticated helper.
+          for path in [
+              root/'src/views/ReportPotholeView.tsx',
+              root/'src/lib/verificationEngine.ts',
+              root/'src/views/MunicipalAdminView.tsx',
+          ]:
+              t = path.read_text()
+              if "from '../lib/apiClient'" not in t and path.name in {'ReportPotholeView.tsx','MunicipalAdminView.tsx'}:
+                  t = t.replace("import { NavView } from '../components/Navbar';", "import { NavView } from '../components/Navbar';\nimport { apiFetch } from '../lib/apiClient';")
+              if path.name == 'verificationEngine.ts' and "from './apiClient'" not in t:
+                  t = t.replace("import { Complaint, VerificationResult, VerificationStages } from '../types';", "import { Complaint, VerificationResult, VerificationStages } from '../types';\nimport { apiFetch } from './apiClient';")
+              t = re.sub(r"(?<![\w])fetch\('/api/", "apiFetch('/api/", t)
+              path.write_text(t)
+
+          # README deployment/security notes.
+          readme = root/'README.md'
+          existing = readme.read_text() if readme.exists() else '# RoadSetu AI\n'
+          section = '''\n## Production deployment\n\nRoadSetu uses Firebase Authentication/Firestore for identity and data, Gemini on the server, and Netlify Functions for the Express API. Never put Gemini, Firebase Admin, or SerpApi secrets in client-side `VITE_*` variables.\n\n### Required Netlify Functions environment variables\n- `GEMINI_API_KEY`\n- `FIREBASE_PROJECT_ID`\n- `FIREBASE_CLIENT_EMAIL`\n- `FIREBASE_PRIVATE_KEY` (store the private key as a secret; escaped `\\n` is converted at runtime)\n- `SERPAPI_API_KEY` when the SerpApi enrichment feature is enabled\n\nAuthority roles are provisioned server-side in Firestore. A citizen cannot self-promote by changing a request body or header.\n'''
+          if '## Production deployment' not in existing:
+              readme.write_text(existing.rstrip() + '\n' + section)
+          PY
+
+          npm install --package-lock=false
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "chore: complete production hardening [hardening-applied]" || true
+          git push origin production-hardening
