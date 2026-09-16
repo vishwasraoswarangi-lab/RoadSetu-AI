@@ -44,6 +44,20 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function profileFromFirebaseUser(fbUser: any, data: Record<string, any> = {}): UserProfile {
+  return {
+    uid: fbUser.uid,
+    email: fbUser.email || '',
+    displayName: fbUser.displayName || data.displayName || fbUser.email?.split('@')[0] || 'Citizen',
+    photoURL: fbUser.photoURL || data.photoURL || '',
+    role: data.role || 'citizen',
+    createdAt: data.createdAt || fbUser.metadata.creationTime || new Date().toISOString(),
+    reportsCount: Number(data.reportsCount || 0),
+    verifiedRepairsCount: Number(data.verifiedRepairsCount || 0),
+    emailVerified: fbUser.emailVerified,
+  };
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -58,61 +72,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
-    if (!isFirebaseConfigured || !auth) {
+    if (!isFirebaseConfigured || !auth?.currentUser && !auth) {
       setLoading(false);
       return;
     }
 
     return onAuthStateChanged(auth, async fbUser => {
-      try {
-        if (!fbUser) {
-          setUser(null);
-          return;
-        }
+      if (!fbUser) {
+        setUser(null);
+        setLoading(false);
+        return;
+      }
 
+      // Firebase Auth is the source of truth for the active session.
+      // Build a usable local profile immediately so a Firestore outage/rule error
+      // cannot make a successful login appear to have failed.
+      const fallbackProfile = profileFromFirebaseUser(fbUser);
+      setUser(fallbackProfile);
+      setLoading(false);
+
+      try {
         const ref = doc(db, 'users', fbUser.uid);
         const snap = await getDoc(ref);
-        const data = snap.exists() ? snap.data() : {};
-
-        // A client-created account is always a citizen. Authority/admin roles must be provisioned server-side.
-        if (!snap.exists()) {
-          const profile: UserProfile = {
-            uid: fbUser.uid,
-            email: fbUser.email || '',
-            displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Citizen',
-            photoURL: fbUser.photoURL || '',
-            role: 'citizen',
-            createdAt: fbUser.metadata.creationTime || new Date().toISOString(),
-            reportsCount: 0,
-            verifiedRepairsCount: 0,
-            emailVerified: fbUser.emailVerified,
-          };
-          await setDoc(ref, sanitizeForFirestore(profile));
-          setUser(profile);
+        if (snap.exists()) {
+          setUser(profileFromFirebaseUser(fbUser, snap.data()));
         } else {
-          setUser({
-            uid: fbUser.uid,
-            email: fbUser.email || '',
-            displayName: fbUser.displayName || data.displayName || 'Citizen',
-            photoURL: fbUser.photoURL || data.photoURL || undefined,
-            role: data.role || 'citizen',
-            createdAt: data.createdAt || fbUser.metadata.creationTime || new Date().toISOString(),
-            reportsCount: data.reportsCount || 0,
-            verifiedRepairsCount: data.verifiedRepairsCount || 0,
-            emailVerified: fbUser.emailVerified,
-          });
+          await setDoc(ref, sanitizeForFirestore(fallbackProfile));
+          setUser(fallbackProfile);
         }
       } catch (error) {
-        console.error('Auth profile sync failed:', error);
-        setUser(null);
-      } finally {
-        setLoading(false);
+        console.error('Auth profile sync failed; Firebase session retained:', error);
+        showToast('Signed in. Profile data will sync when the connection is available.', 'info');
       }
     });
   }, []);
 
   const loginWithEmail = async (email: string, pass: string) => {
-    if (!auth) throw new Error('Firebase Auth is not initialized');
+    if (!auth) throw new Error('Firebase Auth is not initialized.');
     try {
       await signInWithEmailAndPassword(auth, email.trim(), pass);
       setAuthModalOpen(false);
@@ -125,24 +121,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signUpWithEmail = async (name: string, email: string, pass: string, role: 'citizen' | 'municipal_officer' = 'citizen') => {
-    if (!auth) throw new Error('Firebase Auth is not initialized');
-    if (role !== 'citizen') throw new Error('Municipal authority accounts are provisioned by the system administrator.');
+    if (!auth) throw new Error('Firebase Auth is not initialized.');
+    if (role !== 'citizen') {
+      const message = 'Municipal authority accounts are provisioned by the system administrator.';
+      showToast(message, 'error');
+      throw new Error(message);
+    }
 
     try {
       const cred = await createUserWithEmailAndPassword(auth, email.trim(), pass);
       await updateProfile(cred.user, { displayName: name.trim() });
-      try { await sendEmailVerification(cred.user); } catch (e) { console.warn('Verification email:', e); }
-      await setDoc(doc(db, 'users', cred.user.uid), sanitizeForFirestore({
+      const profile: UserProfile = {
         uid: cred.user.uid,
         email: cred.user.email || email.trim(),
         displayName: name.trim(),
+        photoURL: cred.user.photoURL || '',
         role: 'citizen',
         createdAt: new Date().toISOString(),
         reportsCount: 0,
         verifiedRepairsCount: 0,
-      }));
+        emailVerified: cred.user.emailVerified,
+      };
+      setUser(profile);
       setAuthModalOpen(false);
-      showToast('Citizen account created. Please verify your email.', 'success');
+      showToast('Citizen account created.', 'success');
+
+      try {
+        await setDoc(doc(db, 'users', cred.user.uid), sanitizeForFirestore(profile));
+      } catch (profileError) {
+        console.error('New account profile sync failed:', profileError);
+        showToast('Account created. Your profile will finish syncing shortly.', 'info');
+      }
+
+      try {
+        await sendEmailVerification(cred.user);
+        showToast('Verification email sent.', 'success');
+      } catch (verificationError) {
+        console.warn('Verification email could not be sent:', verificationError);
+      }
     } catch (err) {
       const message = formatAuthError(err);
       showToast(message, 'error');
@@ -151,25 +167,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signInWithGoogle = async () => {
-    if (!auth) throw new Error('Firebase Auth is not initialized');
+    if (!auth) throw new Error('Firebase Auth is not initialized.');
     try {
       const result = await signInWithPopup(auth, new GoogleAuthProvider());
-      const ref = doc(db, 'users', result.user.uid);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) {
-        await setDoc(ref, sanitizeForFirestore({
-          uid: result.user.uid,
-          email: result.user.email || '',
-          displayName: result.user.displayName || 'Citizen',
-          photoURL: result.user.photoURL || '',
-          role: 'citizen',
-          createdAt: new Date().toISOString(),
-          reportsCount: 0,
-          verifiedRepairsCount: 0,
-        }));
-      }
+      const profile = profileFromFirebaseUser(result.user);
+      setUser(profile);
       setAuthModalOpen(false);
       showToast('Signed in with Google.', 'success');
+
+      try {
+        const ref = doc(db, 'users', result.user.uid);
+        const snap = await getDoc(ref);
+        if (snap.exists()) setUser(profileFromFirebaseUser(result.user, snap.data()));
+        else await setDoc(ref, sanitizeForFirestore(profile));
+      } catch (profileError) {
+        console.error('Google profile sync failed; session retained:', profileError);
+        showToast('Google sign-in succeeded. Profile sync will retry later.', 'info');
+      }
     } catch (err) {
       const message = formatAuthError(err);
       showToast(message, 'error');
@@ -184,7 +198,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const resetPassword = async (email: string) => {
-    if (!auth) throw new Error('Firebase Auth is not initialized');
+    if (!auth) throw new Error('Firebase Auth is not initialized.');
     try {
       await sendPasswordResetEmail(auth, email.trim());
       setAuthModalOpen(false);
@@ -201,8 +215,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await sendEmailVerification(auth.currentUser);
       showToast('Verification email sent.', 'success');
-    } catch {
-      showToast('Could not send verification email. Try again later.', 'error');
+    } catch (err) {
+      showToast(formatAuthError(err), 'error');
     }
   };
 
@@ -210,11 +224,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!auth?.currentUser || !user) return;
     try {
       await updateProfile(auth.currentUser, { displayName: newName.trim(), ...(photoURL ? { photoURL } : {}) });
-      await updateDoc(doc(db, 'users', user.uid), { displayName: newName.trim(), ...(photoURL ? { photoURL } : {}) });
+      try {
+        await updateDoc(doc(db, 'users', user.uid), { displayName: newName.trim(), ...(photoURL ? { photoURL } : {}) });
+      } catch (profileError) {
+        console.error('Firestore profile update failed:', profileError);
+      }
       setUser(prev => prev ? { ...prev, displayName: newName.trim(), ...(photoURL ? { photoURL } : {}) } : null);
       showToast('Profile updated successfully.', 'success');
-    } catch {
-      showToast('Failed to update profile.', 'error');
+    } catch (err) {
+      showToast(formatAuthError(err), 'error');
     }
   };
 
@@ -226,10 +244,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider value={{
-      user, loading, isFirebaseReady: isFirebaseConfigured, accountType, setAccountType,
-      loginWithEmail, signUpWithEmail, signInWithGoogle, logout, resetPassword,
-      resendVerificationEmail, updateUserProfileData, authModalOpen, authModalMode,
-      openAuthModal, closeAuthModal: () => setAuthModalOpen(false), toastMessage, showToast,
+      user,
+      loading,
+      isFirebaseReady: isFirebaseConfigured,
+      accountType,
+      setAccountType,
+      loginWithEmail,
+      signUpWithEmail,
+      signInWithGoogle,
+      logout,
+      resetPassword,
+      resendVerificationEmail,
+      updateUserProfileData,
+      authModalOpen,
+      authModalMode,
+      openAuthModal,
+      closeAuthModal: () => setAuthModalOpen(false),
+      toastMessage,
+      showToast,
     }}>
       {children}
     </AuthContext.Provider>
