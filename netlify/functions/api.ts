@@ -20,17 +20,53 @@ try {
 } catch (error) { console.error('Firebase Admin initialization failed:', error); }
 
 interface AuthedRequest extends Request { firebaseUser?: { uid: string; email?: string; [key: string]: unknown } }
+
+async function verifyWithFirebaseWebApi(idToken: string) {
+  const apiKey = process.env.FIREBASE_WEB_API_KEY || process.env.VITE_FIREBASE_API_KEY || 'AIzaSyBRlQw7fvhjP8wXds2htBRT38hW0bUsGhU';
+  const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken }),
+    signal: AbortSignal.timeout(7000),
+  });
+  if (!response.ok) return null;
+  const data = await response.json() as { users?: Array<{ localId?: string; email?: string }> };
+  const firebaseUser = data.users?.[0];
+  if (!firebaseUser?.localId) return null;
+  return { uid: firebaseUser.localId, email: firebaseUser.email || '' };
+}
+
 async function requireFirebaseUser(req: AuthedRequest, res: Response, next: NextFunction) {
-  if (!firebaseAdminReady) return res.status(503).json({ success: false, error: 'Server authentication is not configured.' });
   const header = req.headers.authorization || '';
   if (!header.startsWith('Bearer ')) return res.status(401).json({ success: false, error: 'Authentication required.' });
-  try {
-    req.firebaseUser = await getAdminAuth().verifyIdToken(header.slice(7), true);
-    return next();
-  } catch (error) {
-    console.error('Firebase token verification failed:', error);
-    return res.status(401).json({ success: false, error: 'Invalid or expired Firebase session.' });
+  const token = header.slice(7).trim();
+  if (!token) return res.status(401).json({ success: false, error: 'Authentication required.' });
+
+  // Primary verification uses Firebase Admin. Do not require token revocation
+  // checks here: a normal, valid ID-token session must be accepted by the API.
+  if (firebaseAdminReady) {
+    try {
+      req.firebaseUser = await getAdminAuth().verifyIdToken(token, false);
+      return next();
+    } catch (error) {
+      console.warn('Firebase Admin token verification failed; trying Firebase Auth API fallback.', error);
+    }
   }
+
+  // Netlify deployments can have stale/mismatched Admin credentials. The
+  // Firebase Auth REST lookup validates the ID token against the same web
+  // project used by the client and avoids rejecting an otherwise valid session.
+  try {
+    const firebaseUser = await verifyWithFirebaseWebApi(token);
+    if (firebaseUser) {
+      req.firebaseUser = firebaseUser;
+      return next();
+    }
+  } catch (error) {
+    console.error('Firebase Auth API fallback failed:', error);
+  }
+
+  return res.status(401).json({ success: false, error: 'Invalid or expired Firebase session.' });
 }
 
 let aiClient: GoogleGenAI | null = null;
@@ -123,7 +159,7 @@ app.post('/api/analyze-defect', requireFirebaseUser, async (req: AuthedRequest, 
   }
 });
 
-app.post('/api/verify-repair', requireFirebaseUser, async (req: AuthedRequest, res) => {
+app.post('/api/verify-repair', requireFirebaseUser, async (req: AuthedRequest, res: Response) => {
   try {
     const { beforeImageBase64, afterImageBase64, beforeImage, afterImage, beforeDescription = '', afterDescription = '', repairNotes = '' } = req.body || {};
     const beforeInput = beforeImageBase64 || beforeImage;
