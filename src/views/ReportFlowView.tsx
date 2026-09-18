@@ -203,11 +203,13 @@ export const ReportFlowView: React.FC<ReportFlowViewProps> = ({ onNavigate }) =>
       return;
     }
 
-    const duplicate = checkForDuplicates(location.latitude, location.longitude);
-    if (duplicate.hasDuplicate && duplicate.existingComplaint) {
+    // Nearby reports are advisory context only. Location proximity is not proof that
+    // the new image describes the same physical defect, so never block AI analysis here.
+    const nearby = checkForDuplicates(location.latitude, location.longitude);
+    if (nearby.existingComplaint) {
       setNearbyReports(1);
-      showToast('A nearby report already exists. Review it before creating another report.', 'info');
-      return;
+    } else {
+      setNearbyReports(null);
     }
 
     setAnalyzing(true);
@@ -295,7 +297,7 @@ export const ReportFlowView: React.FC<ReportFlowViewProps> = ({ onNavigate }) =>
           </aside>
         </div>
 
-        {nearbyReports !== null && <div className="mt-5 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-amber-200">A nearby report may already cover this location. Check your existing reports before submitting another duplicate.</div>}
+        {nearbyReports !== null && <div className="mt-5 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-amber-200"><strong className="font-semibold text-amber-100">Nearby report found.</strong> Another citizen may have reported an issue close to this location. This is only a warning — it does not prevent you from submitting a separate report.</div>}
 
         <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between"><button onClick={() => onNavigate('dashboard')} className="rounded-xl border border-slate-700 px-5 py-3 text-sm font-semibold text-slate-300 hover:bg-slate-800">Back to dashboard</button><button onClick={analyzeAndSubmit} disabled={analyzing || submitted} className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-400 px-7 py-3 text-sm font-black text-slate-950 shadow-lg shadow-cyan-500/10 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60">{analyzing ? <><Loader2 className="h-4 w-4 animate-spin" />Analyzing image…</> : submitted ? <><CheckCircle2 className="h-4 w-4" />Report submitted</> : <><Sparkles className="h-4 w-4" />Analyze & Submit Report</>}</button></div>
 
