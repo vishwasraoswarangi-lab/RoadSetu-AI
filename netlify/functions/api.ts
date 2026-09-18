@@ -1,76 +1,54 @@
 import express, { Request, Response, NextFunction } from 'express';
 import serverless from 'serverless-http';
 import { GoogleGenAI } from '@google/genai';
-import { getApps, initializeApp, cert, applicationDefault } from 'firebase-admin/app';
+import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 
 const app = express();
 app.use(express.json({ limit: '15mb' }));
 
-const FIREBASE_PROJECT_ID = 'gen-lang-client-0437042384';
-const FIREBASE_WEB_API_KEY = 'AIzaSyBRlQw7fvhjP8wXds2htBRT38hW0bUsGhU';
-
 let firebaseAdminReady = false;
 try {
-  if (!getApps().length) {
-    const projectId = process.env.FIREBASE_PROJECT_ID;
-    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-    const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
-    if (projectId && clientEmail && privateKey) initializeApp({ credential: cert({ projectId, clientEmail, privateKey }) });
-    else initializeApp({ credential: applicationDefault() });
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  if (!projectId || !clientEmail || !privateKey) {
+    console.error('Firebase Admin initialization failed: required environment variables are missing.');
+  } else {
+    if (!getApps().length) initializeApp({ credential: cert({ projectId, clientEmail, privateKey }) });
+    firebaseAdminReady = true;
   }
-  firebaseAdminReady = true;
-} catch (error) { console.error('Firebase Admin initialization failed:', error); }
+} catch (error: any) {
+  console.error('Firebase Admin initialization failed:', { code: error?.code, message: error?.message });
+}
 
 interface AuthedRequest extends Request { firebaseUser?: { uid: string; email?: string; [key: string]: unknown } }
 
-async function verifyWithFirebaseWebApi(idToken: string) {
-  const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(FIREBASE_WEB_API_KEY)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idToken }),
-    signal: AbortSignal.timeout(7000),
-  });
-  const data = await response.json().catch(() => ({})) as { users?: Array<{ localId?: string; email?: string }>; error?: { message?: string } };
-  if (!response.ok) {
-    console.warn('Firebase Web API token lookup rejected:', data?.error?.message || `HTTP ${response.status}`);
-    return null;
-  }
-  const firebaseUser = data.users?.[0];
-  if (!firebaseUser?.localId) return null;
-  return { uid: firebaseUser.localId, email: firebaseUser.email || '' };
-}
-
 async function requireFirebaseUser(req: AuthedRequest, res: Response, next: NextFunction) {
+  if (!firebaseAdminReady) {
+    console.error('Firebase authentication unavailable: FIREBASE_ADMIN_CONFIG_MISSING');
+    return res.status(500).json({ success: false, error: 'Firebase authentication is not configured on the server.' });
+  }
   const header = req.headers.authorization || '';
   if (!header.startsWith('Bearer ')) return res.status(401).json({ success: false, error: 'Authentication required.' });
   const token = header.slice(7).trim();
   if (!token) return res.status(401).json({ success: false, error: 'Authentication required.' });
 
-  // Validate against the exact Firebase project used by the browser first.
-  // This prevents stale Netlify Admin credentials from rejecting valid ID tokens.
   try {
-    const firebaseUser = await verifyWithFirebaseWebApi(token);
-    if (firebaseUser) {
-      req.firebaseUser = firebaseUser;
-      return next();
-    }
-  } catch (error) {
-    console.error('Firebase Web API token validation failed:', error);
+    const decoded = await getAdminAuth().verifyIdToken(token);
+    req.firebaseUser = decoded;
+    return next();
+  } catch (error: any) {
+    console.error('Firebase Admin verifyIdToken failed:', {
+      code: error?.code || 'UNKNOWN_FIREBASE_AUTH_ERROR',
+      message: error?.message || String(error),
+    });
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid or expired Firebase session.',
+      code: error?.code || 'UNKNOWN_FIREBASE_AUTH_ERROR',
+    });
   }
-
-  // Admin verification remains a secondary path for environments where the
-  // Web API is temporarily unavailable.
-  if (firebaseAdminReady) {
-    try {
-      req.firebaseUser = await getAdminAuth().verifyIdToken(token, false);
-      return next();
-    } catch (error) {
-      console.warn('Firebase Admin token verification failed:', error);
-    }
-  }
-
-  return res.status(401).json({ success: false, error: `Invalid Firebase ID token for project ${FIREBASE_PROJECT_ID}. Please refresh your session and try again.` });
 }
 
 let aiClient: GoogleGenAI | null = null;
