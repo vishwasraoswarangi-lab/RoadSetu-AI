@@ -54,15 +54,10 @@ function hardenReportFlow(): Plugin {
           "      const aiSummary = String(data.aiSummary || 'Road defect verified by AI vision analysis.');",
           "      const recommendedAction = String(data.recommendedAction || 'Route to the responsible road authority for inspection.');",
           "      setAiDetails({ defectType, hazardScore: analyzedHazard, confidence, aiSummary, recommendedAction });",
-          "      // IMPORTANT: location is not a duplicate by itself. Only the same citizen + same active defect is blocked.",
+          "      // Nearby reports are advisory context only. Same location does not prove the same defect.",
           "      const dupCheck = checkForDuplicates(humanLocation.latitude, humanLocation.longitude);",
-          "      const existingType = String(dupCheck.existingComplaint?.defectType || '').toLowerCase().trim();",
-          "      const incomingType = defectType.toLowerCase().trim();",
-          "      const sameDefect = Boolean(existingType && incomingType && (existingType === incomingType || existingType.includes(incomingType) || incomingType.includes(existingType)));",
-          "      if (dupCheck.isOwnComplaint && dupCheck.existingComplaint && sameDefect) {",
-          "        setDuplicateWarning({ hasDuplicate: true, existing: dupCheck.existingComplaint, distance: dupCheck.distanceMeters });",
-          "        showToast('You already reported this same nearby defect. Open the existing report or add evidence.', 'info');",
-          "        return;",
+          "      if (dupCheck.existingComplaint) {",
+          "        setDuplicateWarning({ hasDuplicate: false, existing: dupCheck.existingComplaint, distance: dupCheck.distanceMeters });",
           "      }",
           "      const department = String(data.suggestedDepartment || (humanLocation.road.toLowerCase().includes('highway') ? 'National Highway Authority (NHAI)' : ((humanLocation.city || 'Municipal') + ' Road Engineering Division')));",
           "      const created = await addComplaint({ description, location: humanLocation, beforeImage: photoUrl || base64Image || '', severity: analyzedSeverity, defectType, hazardScore: analyzedHazard, confidence, aiSummary, recommendedAction, estimatedRepairDays: Number(data.estimatedRepairDays) || (analyzedSeverity === 'Critical' ? 1 : 2), department });",
@@ -92,11 +87,8 @@ function hardenReportFlow(): Plugin {
         if (start === -1 || end === -1) throw new Error('RoadSetu duplicate validation transform could not locate duplicate section.');
         const hardenedDuplicateGuard = [
           marker,
-          "const existingType = String(latestDuplicate.existingComplaint?.defectType || '').toLowerCase().trim();",
-          "const incomingType = String(data.defectType || '').toLowerCase().trim();",
-          "const sameDefect = Boolean(existingType && incomingType && (existingType === incomingType || existingType.includes(incomingType) || incomingType.includes(existingType)));",
-          "if (latestDuplicate.hasDuplicate && latestDuplicate.existingComplaint?.userId === user.uid && sameDefect) {",
-          "  throw new Error('You already reported this same nearby defect. Open the existing report or add evidence instead.');",
+          "if (latestDuplicate.existingComplaint) {",
+          "  // Advisory only: proximity never blocks a new complaint.",
           "}",
         ].join('\n    ');
         return { code: code.slice(0, start) + hardenedDuplicateGuard + code.slice(end), map: null };
