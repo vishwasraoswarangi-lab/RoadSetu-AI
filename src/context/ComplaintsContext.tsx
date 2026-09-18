@@ -175,25 +175,17 @@ export const ComplaintsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       .filter(({ distance }) => distance <= DUPLICATE_RADIUS_METERS)
       .sort((a, b) => a.distance - b.distance || new Date(b.complaint.createdAt).getTime() - new Date(a.complaint.createdAt).getTime());
 
-    const own = candidates.find(({ complaint }) => complaint.userId === user.uid);
-    if (own) {
-      return {
-        hasDuplicate: true,
-        existingComplaint: own.complaint,
-        distanceMeters: Math.round(own.distance),
-        isOwnComplaint: true,
-      };
-    }
+    const nearest = candidates[0];
+    if (!nearest) return { hasDuplicate: false };
 
-    // A report from another citizen is informational only. The caller may submit separately.
-    return candidates[0]
-      ? {
-          hasDuplicate: false,
-          existingComplaint: candidates[0].complaint,
-          distanceMeters: Math.round(candidates[0].distance),
-          isOwnComplaint: false,
-        }
-      : { hasDuplicate: false };
+    // Proximity is advisory only. Keep the nearest report and ownership metadata
+    // available to the UI, but never classify it as a blocking duplicate.
+    return {
+      hasDuplicate: false,
+      existingComplaint: nearest.complaint,
+      distanceMeters: Math.round(nearest.distance),
+      isOwnComplaint: nearest.complaint.userId === user.uid,
+    };
   };
 
   const supportComplaint = async (complaintId: string) => {
@@ -233,12 +225,9 @@ export const ComplaintsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       throw new Error('We could not determine a valid report location. Please enable location access or choose a valid location.');
     }
 
-    // Re-check the duplicate immediately before writing. Frontend warnings are UX only;
-    // this second check prevents stale client state from creating an obvious same-user duplicate.
-    const latestDuplicate = checkForDuplicates(latitude, longitude);
-    if (latestDuplicate.hasDuplicate && latestDuplicate.existingComplaint?.userId === user.uid) {
-      throw new Error('You already reported a nearby issue. Open the existing report or add evidence instead.');
-    }
+    // Nearby reports are intentionally not used as a submission gate. A second
+    // citizen, or the same citizen documenting a different defect, can create a
+    // separate report at the same location.
 
     const randomSeq = Math.floor(100000 + Math.random() * 900000);
     const stateCode = data.location.state?.slice(0, 2).toUpperCase() || 'XX';
