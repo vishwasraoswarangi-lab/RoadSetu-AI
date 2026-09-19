@@ -9,7 +9,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 const app = express();
-const PORT = Number(process.env.PORT || 3000);
+const PORT = 3000;
 app.use(express.json({ limit: '15mb' }));
 
 let firebaseAdminReady = false;
@@ -89,6 +89,27 @@ function getAIClient() {
     try { aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); } catch (error) { console.error('Gemini initialization failed:', error); }
   }
   return aiClient;
+}
+
+async function generateGeminiContent(client: GoogleGenAI, contents: any[]) {
+  const models = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash'];
+  let lastError: any = null;
+  for (const model of models) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        return await client.models.generateContent({ model, contents });
+      } catch (error: any) {
+        lastError = error;
+        const message = String(error?.message || error || '');
+        const status = Number(error?.status || error?.code || 0);
+        const transient = status === 503 || status === 429 || /UNAVAILABLE|high demand|overloaded|temporarily/i.test(message);
+        console.warn('Gemini generation attempt failed:', { model, attempt: attempt + 1, transient, status, message });
+        if (!transient) throw error;
+        if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+  }
+  throw lastError || new Error('Gemini AI is temporarily unavailable. Please try again.');
 }
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', aiConfigured: Boolean(process.env.GEMINI_API_KEY), firebaseConfigured: firebaseAdminReady, timestamp: new Date().toISOString() }));
@@ -171,7 +192,7 @@ app.post('/api/analyze-defect', requireFirebaseUser, async (req: AuthedRequest, 
       { inlineData: { mimeType: image.mimeType, data: image.data } },
       `You are the image-validation gate for a civic road complaint system. Inspect the IMAGE first. The citizen description is context only and must never override what is visible. Determine whether the image clearly shows a physical road defect that a municipal road authority could inspect or repair. A normal intact road, unrelated object, person, building, food, screenshot, document, or unclear image is not a road defect. Return ONLY JSON with exactly these fields: defectDetected (boolean), defectType (one of pothole, road_crack, surface_damage, drainage_failure, debris_or_obstruction, road_marking_damage, other_road_defect, no_road_defect), severity (Critical|High|Medium|Low), hazardScore (0-100), confidence (0-1), aiSummary (string), recommendedAction (string), estimatedRepairDays (integer), suggestedDepartment (string). Use no invented measurements. If evidence is insufficient, set defectDetected=false, defectType=no_road_defect, and confidence below 0.65. Citizen description: ${String(description).slice(0, 1000)}. Location: ${String(location?.formattedAddress || location?.city || 'not supplied').slice(0, 300)}.`,
     ];
-    const response = await client.models.generateContent({ model: 'gemini-3.8-flash', contents });
+    const response = await generateGeminiContent(client, contents);
     return res.json({ success: true, data: normalizeDefectResult(parseAiJson(response.text || '')) });
   } catch (error: any) {
     console.error('AI defect analysis failed:', error);
@@ -192,7 +213,7 @@ app.post('/api/verify-repair', requireFirebaseUser, async (req: AuthedRequest, r
     const after = await resolveImage(afterInput);
     if (!before || !after) return res.status(400).json({ success: false, error: 'Both submitted images must be valid.' });
     const contents: any[] = [{ inlineData: { mimeType: before.mimeType, data: before.data } }, { inlineData: { mimeType: after.mimeType, data: after.data } }, `Compare Image 1 (before) and Image 2 (after) for a municipal road repair. Notes: before=${beforeDescription}; after=${afterDescription}; repair=${repairNotes}. Return ONLY valid JSON with isComparisonValid, status, overallScore, rejectionReason, details, stages, flags, payoutApproved. Reject a non-road after image. Do not infer image origin such as Google or AI generation solely from pixels; use observable visual evidence.`];
-    const response = await client.models.generateContent({ model: 'gemini-3.8-flash', contents });
+    const response = await generateGeminiContent(client, contents);
     return res.json({ success: true, data: parseAiJson(response.text || '') });
   } catch (error: any) {
     console.error('Repair verification failed:', error);
@@ -201,18 +222,18 @@ app.post('/api/verify-repair', requireFirebaseUser, async (req: AuthedRequest, r
 });
 
 const startServer = async () => {
-  if (process.env.NETLIFY || process.env.NODE_ENV === 'production') return;
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.join(process.cwd(), 'dist')));
-    app.get('*', (_req, res) => res.sendFile(path.join(process.cwd(), 'dist', 'index.html')));
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (_req, res) => res.sendFile(path.join(distPath, 'index.html')));
   }
-  app.listen(PORT, () => console.log(`RoadSetu AI server running on port ${PORT}`));
+  app.listen(PORT, '0.0.0.0', () => console.log(`RoadSetu AI server running on http://0.0.0.0:${PORT}`));
 };
 
-if (!process.env.NETLIFY) startServer();
+startServer();
 
 export { app };

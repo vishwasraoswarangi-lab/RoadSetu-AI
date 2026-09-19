@@ -9,6 +9,7 @@ import { useComplaints } from '../context/ComplaintsContext';
 import { useAuth } from '../context/AuthContext';
 import { Complaint, ComplaintStatus } from '../types';
 import { NavView } from '../components/Navbar';
+import { MatchOriginalViewModal } from '../components/MatchOriginalViewModal';
 
 interface MunicipalAdminViewProps {
   onNavigate: (view: NavView) => void;
@@ -26,6 +27,7 @@ export const MunicipalAdminView: React.FC<MunicipalAdminViewProps> = ({ onNaviga
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [evidenceModalComplaint, setEvidenceModalComplaint] = useState<Complaint | null>(null);
+  const [matchingComplaint, setMatchingComplaint] = useState<Complaint | null>(null);
   const [evidenceImage, setEvidenceImage] = useState<string>(DEFAULT_AFTER_REPAIRS[0]);
   const [contractorName, setContractorName] = useState<string>('');
   const [repairNotes, setRepairNotes] = useState<string>('');
@@ -57,6 +59,32 @@ export const MunicipalAdminView: React.FC<MunicipalAdminViewProps> = ({ onNaviga
     }
   };
 
+  const handleContractorMatchSubmission = async (capturedImage: string, notes: string) => {
+    if (!matchingComplaint) return;
+    try {
+      await updateComplaintStatus(matchingComplaint.id, 'repair_claimed', {
+        afterImage: capturedImage,
+        contractorNotes: notes,
+      });
+      showToast(`Repair captured via Viewpoint Match for ${matchingComplaint.id}! Opening Verification Center...`, 'success');
+      const updated = {
+        ...matchingComplaint,
+        afterImage: capturedImage,
+        contractorNotes: notes,
+        status: 'repair_claimed' as const,
+      };
+      setMatchingComplaint(null);
+      if (onSelectComplaintForVerification) {
+        onSelectComplaintForVerification(updated);
+      } else {
+        onNavigate('verify');
+      }
+    } catch (err) {
+      console.error('Failed to submit repair:', err);
+      showToast('Could not submit repair evidence.', 'error');
+    }
+  };
+
   if (!isAuthority) {
     return <div className="mx-auto max-w-3xl p-8 text-center"><ShieldCheck className="mx-auto mb-4 h-12 w-12 text-amber-400" /><h2 className="text-xl font-black text-white">Authority access required</h2><p className="mt-2 text-sm text-slate-400">Sign in with a provisioned municipal authority account to access this hub.</p><button onClick={() => onNavigate('dashboard')} className="mt-5 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-bold text-slate-950">Return to portal</button></div>;
   }
@@ -72,8 +100,81 @@ export const MunicipalAdminView: React.FC<MunicipalAdminViewProps> = ({ onNaviga
         {activeTab === 'triage' && <><div className="mb-4 flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" /><input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search live reports" className="w-full rounded-lg border border-white/10 bg-black/20 py-2 pl-9 pr-3 text-sm text-white outline-none focus:border-cyan-500/50" /></div><select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)} className="rounded-lg border border-white/10 bg-[#111827] px-3 py-2 text-sm text-white"><option value="all">All statuses</option>{['reported','ai_analyzed','routed','assigned','repair_in_progress','repair_claimed','verified','suspicious','closed'].map(s => <option key={s} value={s}>{s.replaceAll('_',' ')}</option>)}</select></div><div className="space-y-3">{filtered.length === 0 ? <div className="rounded-xl border border-dashed border-white/10 p-8 text-center text-sm text-slate-500">No live reports match the filters.</div> : filtered.slice(0, 50).map(c => <div key={c.id} className="rounded-xl border border-white/10 bg-black/10 p-4"><div className="flex flex-col justify-between gap-3 sm:flex-row"><div><div className="text-sm font-black text-white">{c.id}</div><div className="mt-1 text-sm text-slate-300">{c.location.formattedAddress || `${c.location.road}, ${c.location.city}`}</div><div className="mt-2 text-xs text-slate-500">{c.description}</div></div><div className="flex items-start gap-2"><span className="rounded-full bg-white/5 px-2 py-1 text-[10px] font-bold uppercase text-slate-300">{c.status.replaceAll('_',' ')}</span><button onClick={() => onSelectComplaintForVerification?.(c)} className="rounded-lg border border-white/10 p-2 text-slate-300 hover:bg-white/5" title="Open verification"><ExternalLink className="h-4 w-4" /></button></div></div><div className="mt-3 flex flex-wrap gap-2">{c.status !== 'repair_in_progress' && c.status !== 'verified' && <button onClick={() => handleStatusUpdate(c, 'repair_in_progress')} className="rounded-lg bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-300">Mark in repair</button>}{c.status === 'repair_in_progress' && <button onClick={() => handleStatusUpdate(c, 'repair_claimed')} className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-300">Mark repair claimed</button>}</div></div>)}</div></>}
         {activeTab === 'verification' && <div className="rounded-xl border border-white/10 p-5"><h2 className="font-black text-white">Repair verification queue</h2><p className="mt-1 text-sm text-slate-400">Reports with claimed repairs can be opened in the verification center.</p><div className="mt-4 space-y-2">{complaints.filter(c => c.status === 'repair_claimed' || c.afterImage).map(c => <button key={c.id} onClick={() => onSelectComplaintForVerification?.(c)} className="flex w-full items-center justify-between rounded-lg bg-white/[0.03] p-3 text-left hover:bg-white/[0.06]"><span><span className="block text-sm font-bold text-white">{c.id}</span><span className="text-xs text-slate-500">{c.location.formattedAddress}</span></span><ChevronRight className="h-4 w-4 text-slate-500" /></button>)}</div></div>}
         {activeTab === 'analytics' && <div className="grid gap-5 lg:grid-cols-2"><div className="h-72 rounded-xl border border-white/10 p-4"><ResponsiveContainer width="100%" height="100%"><BarChart data={[{name:'Reported',value:pendingTriageCount},{name:'Repair',value:inRepairCount},{name:'Verified',value:verifiedCount},{name:'Suspicious',value:suspiciousCount}]}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis allowDecimals={false} /><Tooltip /><Bar dataKey="value" /></BarChart></ResponsiveContainer></div><div className="h-72 rounded-xl border border-white/10 p-4"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={[{name:'Pending',value:pendingTriageCount},{name:'Repair',value:inRepairCount},{name:'Verified',value:verifiedCount},{name:'Suspicious',value:suspiciousCount}]} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label><Cell /> <Cell /> <Cell /> <Cell /></Pie></PieChart></ResponsiveContainer></div></div>}
-        {activeTab === 'contractors' && <div className="rounded-xl border border-white/10 p-5"><h2 className="font-black text-white">Contractor workflow</h2><p className="mt-1 text-sm text-slate-400">Contractor evidence and payout decisions should be based on live repair records and verification results.</p></div>}
+        {activeTab === 'contractors' && (
+          <div className="rounded-xl border border-white/10 p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-white/10 pb-4">
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-lg">📐</span>
+                  <h2 className="font-black text-white text-base">Contractor Repair Workflow: Match the Original View</h2>
+                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  Contractors must capture post-repair evidence from a viewpoint similar to the original citizen defect photo to pass multi-stage verification.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-cyan-400">
+                Active Repair Dispatches ({complaints.filter(c => c.status === 'repair_in_progress' || c.status === 'assigned').length})
+              </h3>
+
+              {complaints.filter(c => c.status === 'repair_in_progress' || c.status === 'assigned').length === 0 ? (
+                <div className="rounded-xl border border-dashed border-white/10 p-6 text-center text-xs text-slate-400">
+                  No repairs currently in progress. Dispatch a crew from the Triage tab to test repair submission.
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {complaints
+                    .filter(c => c.status === 'repair_in_progress' || c.status === 'assigned')
+                    .map(c => (
+                      <div key={c.id} className="rounded-xl border border-white/10 bg-white/[0.02] p-4 flex flex-col justify-between space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <span className="font-mono text-xs font-bold text-cyan-300">{c.id}</span>
+                            <div className="text-sm font-bold text-white mt-0.5">{c.location.road}</div>
+                            <div className="text-xs text-slate-400">{c.location.city} • Defect: {c.defectType}</div>
+                          </div>
+                          {c.beforeImage && (
+                            <img
+                              src={c.beforeImage}
+                              alt="Defect"
+                              className="h-14 w-14 rounded-lg object-cover border border-white/10 shrink-0"
+                              referrerPolicy="no-referrer"
+                            />
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            {c.status.replaceAll('_', ' ')}
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={() => setMatchingComplaint(c)}
+                            className="inline-flex items-center space-x-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-500 transition-colors shadow-sm"
+                          >
+                            <span>📐</span>
+                            <span>Match Original View</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
+      {matchingComplaint && (
+        <MatchOriginalViewModal
+          isOpen={Boolean(matchingComplaint)}
+          onClose={() => setMatchingComplaint(null)}
+          complaint={matchingComplaint}
+          onSubmitRepair={handleContractorMatchSubmission}
+        />
+      )}
       {evidenceModalComplaint && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"><div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#111827] p-5"><button onClick={() => setEvidenceModalComplaint(null)} className="float-right text-slate-400"><X /></button><h3 className="font-black text-white">Repair evidence — {evidenceModalComplaint.id}</h3><p className="mt-2 text-sm text-slate-400">Upload a real post-repair image instead of selecting a demo asset.</p><input ref={fileInputRef} type="file" accept="image/*" className="mt-4 block w-full text-sm text-slate-300" onChange={e => { const f=e.target.files?.[0]; if(f){setEvidenceImage(URL.createObjectURL(f));}}} /><input value={contractorName} onChange={e=>setContractorName(e.target.value)} placeholder="Contractor name" className="mt-3 w-full rounded-lg border border-white/10 bg-black/20 p-2 text-sm text-white" /><textarea value={repairNotes} onChange={e=>setRepairNotes(e.target.value)} placeholder="Repair notes" className="mt-3 w-full rounded-lg border border-white/10 bg-black/20 p-2 text-sm text-white" /><button onClick={() => { setEvidenceModalComplaint(null); showToast('Evidence captured locally. Connect storage to persist the image.', 'info'); }} className="mt-4 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-black text-slate-950">Save evidence</button></div></div>}
     </div>
   );

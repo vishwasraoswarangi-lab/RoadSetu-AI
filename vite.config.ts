@@ -86,5 +86,10 @@ function hardenReportFlow(): Plugin {
 export default defineConfig(() => ({
   plugins: [hardenReportFlow(), react(), tailwindcss()],
   resolve: { alias: { '@': path.resolve(__dirname, '.') } },
-  server: { hmr: process.env.DISABLE_HMR !== 'true', watch: process.env.DISABLE_HMR === 'true' ? null : {} },
+  server: {
+    host: '0.0.0.0',
+    port: 3000,
+    hmr: process.env.DISABLE_HMR !== 'true',
+    watch: process.env.DISABLE_HMR === 'true' ? null : {},
+  },
 }));

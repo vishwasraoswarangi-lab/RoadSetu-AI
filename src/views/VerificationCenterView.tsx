@@ -31,6 +31,7 @@ import { Complaint, VerificationResult } from '../types';
 import { NavView } from '../components/Navbar';
 import { useAuth } from '../context/AuthContext';
 import { runMultiStageVerification } from '../lib/verificationEngine';
+import { MatchOriginalViewModal } from '../components/MatchOriginalViewModal';
 
 interface VerificationCenterViewProps {
   onNavigate: (view: NavView) => void;
@@ -102,6 +103,7 @@ export const VerificationCenterView: React.FC<VerificationCenterViewProps> = ({
   );
   const [repairNotes, setRepairNotes] = useState<string>(activeComplaint?.contractorNotes || '');
   const [isVerifyingWithAi, setIsVerifyingWithAi] = useState(false);
+  const [isMatchModalOpen, setIsMatchModalOpen] = useState(false);
   const [activeVerification, setActiveVerification] = useState<VerificationResult | null>(
     activeComplaint?.verification || null
   );
@@ -233,6 +235,15 @@ export const VerificationCenterView: React.FC<VerificationCenterViewProps> = ({
     setCurrentAfterImage(activeComplaint.beforeImage);
     setRepairNotes('Contractor resubmitted identical before photo.');
     executeVerification(activeComplaint.beforeImage, 'Contractor resubmitted identical before photo.');
+  };
+
+  // Submission from Match The Original View modal
+  const handleMatchViewSubmission = async (capturedImage: string, notes: string) => {
+    setCurrentAfterImage(capturedImage);
+    setRepairNotes(notes);
+    setIsMatchModalOpen(false);
+    showToast('After-repair photo captured via Viewpoint Matching. Initiating full 5-stage verification audit...', 'info');
+    await executeVerification(capturedImage, notes);
   };
 
   // Audit Certificate PDF export
@@ -423,19 +434,35 @@ export const VerificationCenterView: React.FC<VerificationCenterViewProps> = ({
           </div>
         </div>
 
-        {/* Upload Custom Evidence Drawer */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center space-x-2">
-              <Upload className="h-4 w-4 text-cyan-400" />
-              <span>Or Upload Custom Repair Photo</span>
-            </h3>
-            <span className="text-[11px] text-slate-400">
-              Upload any image to test the gatekeeper classifier (cake, living room, or road patch).
-            </span>
+        {/* Contractor Field Evidence Submission & Viewpoint Matcher */}
+        <div className="rounded-2xl border border-teal-500/30 bg-slate-900/80 p-4 space-y-3 shadow-lg">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-800 pb-3">
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="text-sm">📐</span>
+                <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                  Contractor Repair Evidence: Match the Original View
+                </h3>
+                <span className="rounded bg-teal-500/20 px-2 py-0.5 text-[10px] font-bold text-teal-300 border border-teal-500/30">
+                  Angle & Landmark Alignment
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Ensure the contractor captures the after-repair photo from a viewpoint similar to the original pothole defect.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsMatchModalOpen(true)}
+              className="inline-flex items-center justify-center space-x-2 rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold text-white hover:bg-teal-500 transition-all shadow-md shadow-teal-600/20"
+            >
+              <span>📐</span>
+              <span>Open Camera: Match Original View</span>
+            </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center pt-1">
             <div className="sm:col-span-5">
               <input
                 type="file"
@@ -463,8 +490,7 @@ export const VerificationCenterView: React.FC<VerificationCenterViewProps> = ({
                 onChange={(e) => setRepairNotes(e.target.value)}
                 placeholder="Contractor repair execution notes..."
                 className="w-full rounded-xl border border-slate-700 bg-slate-950 p-2.5 text-xs text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
-              >
-              </input>
+              />
             </div>
 
             <div className="sm:col-span-3">
@@ -567,6 +593,13 @@ export const VerificationCenterView: React.FC<VerificationCenterViewProps> = ({
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center justify-center gap-2.5">
+                  <button
+                    onClick={() => setIsMatchModalOpen(true)}
+                    className="rounded-xl bg-teal-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-teal-500 shadow-md shadow-teal-600/20 flex items-center space-x-1.5"
+                  >
+                    <span>📐</span>
+                    <span>Match Original View & Capture</span>
+                  </button>
                   <button
                     onClick={() => handleSelectScenario(TEST_SCENARIOS[0])}
                     className="rounded-xl border border-rose-500/40 bg-rose-950/30 px-3 py-1.5 text-xs font-bold text-rose-300 hover:bg-rose-900/40"
@@ -1009,6 +1042,16 @@ export const VerificationCenterView: React.FC<VerificationCenterViewProps> = ({
             )}
           </div>
         </div>
+
+        {/* Match the Original View Modal */}
+        {activeComplaint && (
+          <MatchOriginalViewModal
+            isOpen={isMatchModalOpen}
+            onClose={() => setIsMatchModalOpen(false)}
+            complaint={activeComplaint}
+            onSubmitRepair={handleMatchViewSubmission}
+          />
+        )}
       </div>
     </div>
   );
