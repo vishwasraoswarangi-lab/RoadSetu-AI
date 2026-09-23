@@ -1,10 +1,31 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import {
-  Building2, Filter, Search, CheckCircle2, AlertTriangle, Clock, Truck, ShieldCheck,
-  RefreshCw, ExternalLink, DollarSign, Award, Users, UploadCloud, FileCheck, Zap,
-  BarChart3, SlidersHorizontal, ChevronRight, MapPin, Check, X, Camera,
+  Building2,
+  Search,
+  CheckCircle2,
+  Clock,
+  Truck,
+  ShieldCheck,
+  RefreshCw,
+  ExternalLink,
+  FileCheck,
+  ChevronRight,
+  MapPin,
+  BarChart3,
 } from 'lucide-react';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell } from 'recharts';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  PieChart,
+  Pie,
+  Cell,
+} from 'recharts';
+
 import { useComplaints } from '../context/ComplaintsContext';
 import { useAuth } from '../context/AuthContext';
 import { Complaint, ComplaintStatus } from '../types';
@@ -13,169 +34,851 @@ import { MatchOriginalViewModal } from '../components/MatchOriginalViewModal';
 
 interface MunicipalAdminViewProps {
   onNavigate: (view: NavView) => void;
-  onSelectComplaintForVerification?: (complaint: Complaint) => void;
+  onSelectComplaintForVerification?: (
+    complaint: Complaint
+  ) => void;
 }
 
-const DEFAULT_AFTER_REPAIRS = ['/assets/repaired_road_after.jpg', '/assets/road_patch_clean.jpg'];
-const COLORS = ['#06B6D4', '#F59E0B', '#EF4444', '#10B981', '#8B5CF6'];
+const CHART_COLORS = ['#2563eb', '#f59e0b', '#10b981', '#ef4444'];
 
-export const MunicipalAdminView: React.FC<MunicipalAdminViewProps> = ({ onNavigate, onSelectComplaintForVerification }) => {
-  const { complaints, updateComplaintStatus, stats } = useComplaints();
+export const MunicipalAdminView: React.FC<
+  MunicipalAdminViewProps
+> = ({
+  onNavigate,
+  onSelectComplaintForVerification,
+}) => {
+  const {
+    complaints,
+    updateComplaintStatus,
+    stats,
+  } = useComplaints();
+
   const { user, showToast } = useAuth();
-  const [activeTab, setActiveTab] = useState<'triage' | 'verification' | 'analytics' | 'contractors'>('triage');
-  const [selectedWard, setSelectedWard] = useState<string>('all');
-  const [selectedStatus, setSelectedStatus] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [evidenceModalComplaint, setEvidenceModalComplaint] = useState<Complaint | null>(null);
-  const [matchingComplaint, setMatchingComplaint] = useState<Complaint | null>(null);
-  const [evidenceImage, setEvidenceImage] = useState<string>(DEFAULT_AFTER_REPAIRS[0]);
-  const [contractorName, setContractorName] = useState<string>('');
-  const [repairNotes, setRepairNotes] = useState<string>('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isAuthority = user?.role === 'municipal_officer' || user?.role === 'admin' || user?.role === 'authority';
-  const pendingTriageCount = complaints.filter(c => c.status === 'reported' || c.status === 'ai_analyzed').length;
-  const inRepairCount = complaints.filter(c => c.status === 'repair_in_progress').length;
-  const awaitingVerificationCount = complaints.filter(c => c.status === 'repair_claimed' || (c.status === 'repair_in_progress' && c.afterImage)).length;
-  const verifiedCount = complaints.filter(c => c.status === 'verified').length;
-  const suspiciousCount = complaints.filter(c => c.status === 'suspicious').length;
-  const totalProtectedFunds = stats.fraudBlockedAmount || (suspiciousCount * 28500) + (verifiedCount * 14500);
+  const [activeTab, setActiveTab] = useState<
+    'triage' | 'verification' | 'analytics' | 'contractors'
+  >('triage');
 
-  const filtered = complaints.filter(c => {
+  const [selectedStatus, setSelectedStatus] =
+    useState<string>('all');
+
+  const [searchQuery, setSearchQuery] =
+    useState('');
+
+  const [matchingComplaint, setMatchingComplaint] =
+    useState<Complaint | null>(null);
+
+  const isAuthority =
+    user?.role === 'municipal_officer' ||
+    user?.role === 'admin' ||
+    user?.role === 'authority';
+
+  const pendingTriageCount = complaints.filter(
+    (c) =>
+      c.status === 'reported' ||
+      c.status === 'ai_analyzed'
+  ).length;
+
+  const inRepairCount = complaints.filter(
+    (c) => c.status === 'repair_in_progress'
+  ).length;
+
+  const awaitingVerificationCount =
+    complaints.filter(
+      (c) =>
+        c.status === 'repair_claimed' ||
+        (c.status === 'repair_in_progress' &&
+          c.afterImage)
+    ).length;
+
+  const verifiedCount = complaints.filter(
+    (c) => c.status === 'verified'
+  ).length;
+
+  const suspiciousCount = complaints.filter(
+    (c) => c.status === 'suspicious'
+  ).length;
+
+  const totalProtectedFunds =
+    stats.fraudBlockedAmount ||
+    suspiciousCount * 28500 +
+      verifiedCount * 14500;
+
+  const filtered = complaints.filter((c) => {
     const q = searchQuery.toLowerCase();
-    const matchesSearch = c.id.toLowerCase().includes(q) || c.location.road.toLowerCase().includes(q) || c.department.toLowerCase().includes(q) || c.location.city.toLowerCase().includes(q);
-    const matchesWard = selectedWard === 'all' || c.department.includes(selectedWard);
-    const matchesStatus = selectedStatus === 'all' || c.status === selectedStatus;
-    return matchesSearch && matchesWard && matchesStatus;
+
+    const matchesSearch =
+      c.id.toLowerCase().includes(q) ||
+      c.location.road
+        .toLowerCase()
+        .includes(q) ||
+      c.department
+        .toLowerCase()
+        .includes(q) ||
+      c.location.city
+        .toLowerCase()
+        .includes(q);
+
+    const matchesStatus =
+      selectedStatus === 'all' ||
+      c.status === selectedStatus;
+
+    return matchesSearch && matchesStatus;
   });
 
-  const handleStatusUpdate = async (complaint: Complaint, status: ComplaintStatus) => {
+  const handleStatusUpdate = async (
+    complaint: Complaint,
+    status: ComplaintStatus
+  ) => {
     try {
-      await updateComplaintStatus(complaint.id, status);
-      showToast(`Report ${complaint.id} updated.`, 'success');
+      await updateComplaintStatus(
+        complaint.id,
+        status
+      );
+
+      showToast(
+        `Report ${complaint.id} updated.`,
+        'success'
+      );
     } catch (error) {
-      console.error('Status update failed:', error);
-      showToast('Could not update this report.', 'error');
+      console.error(
+        'Status update failed:',
+        error
+      );
+
+      showToast(
+        'Could not update this report.',
+        'error'
+      );
     }
   };
 
-  const handleContractorMatchSubmission = async (capturedImage: string, notes: string) => {
-    if (!matchingComplaint) return;
-    try {
-      await updateComplaintStatus(matchingComplaint.id, 'repair_claimed', {
-        afterImage: capturedImage,
-        contractorNotes: notes,
-      });
-      showToast(`Repair captured via Viewpoint Match for ${matchingComplaint.id}! Opening Verification Center...`, 'success');
-      const updated = {
-        ...matchingComplaint,
-        afterImage: capturedImage,
-        contractorNotes: notes,
-        status: 'repair_claimed' as const,
-      };
-      setMatchingComplaint(null);
-      if (onSelectComplaintForVerification) {
-        onSelectComplaintForVerification(updated);
-      } else {
-        onNavigate('verify');
+  const handleContractorMatchSubmission =
+    async (
+      capturedImage: string,
+      notes: string
+    ) => {
+      if (!matchingComplaint) return;
+
+      try {
+        await updateComplaintStatus(
+          matchingComplaint.id,
+          'repair_claimed',
+          {
+            afterImage: capturedImage,
+            contractorNotes: notes,
+          }
+        );
+
+        showToast(
+          `Repair evidence captured for ${matchingComplaint.id}.`,
+          'success'
+        );
+
+        const updated = {
+          ...matchingComplaint,
+          afterImage: capturedImage,
+          contractorNotes: notes,
+          status: 'repair_claimed' as const,
+        };
+
+        setMatchingComplaint(null);
+
+        if (
+          onSelectComplaintForVerification
+        ) {
+          onSelectComplaintForVerification(
+            updated
+          );
+        } else {
+          onNavigate('verify');
+        }
+      } catch (error) {
+        console.error(
+          'Failed to submit repair:',
+          error
+        );
+
+        showToast(
+          'Could not submit repair evidence.',
+          'error'
+        );
       }
-    } catch (err) {
-      console.error('Failed to submit repair:', err);
-      showToast('Could not submit repair evidence.', 'error');
-    }
-  };
+    };
 
   if (!isAuthority) {
-    return <div className="mx-auto max-w-3xl p-8 text-center"><ShieldCheck className="mx-auto mb-4 h-12 w-12 text-amber-400" /><h2 className="text-xl font-black text-white">Authority access required</h2><p className="mt-2 text-sm text-slate-400">Sign in with a provisioned municipal authority account to access this hub.</p><button onClick={() => onNavigate('dashboard')} className="mt-5 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-bold text-slate-950">Return to portal</button></div>;
+    return (
+      <div className="min-h-screen bg-slate-50 px-4 py-12">
+        <div className="mx-auto max-w-xl rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50">
+            <ShieldCheck className="h-8 w-8 text-amber-600" />
+          </div>
+
+          <h2 className="mt-5 text-2xl font-black text-slate-900">
+            Authority access required
+          </h2>
+
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            Sign in with a provisioned municipal
+            authority account to access this hub.
+          </p>
+
+          <button
+            onClick={() =>
+              onNavigate('dashboard')
+            }
+            className="mt-6 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-700"
+          >
+            Return to Portal
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
-      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><div className="mb-2 inline-flex items-center gap-2 rounded-full bg-amber-500/10 px-3 py-1 text-xs font-bold text-amber-300"><Building2 className="h-3.5 w-3.5" />Authority Hub</div><h1 className="text-3xl font-black text-white">Municipal Operations</h1><p className="mt-1 text-sm text-slate-400">Live reports, repair workflow and verification queue.</p></div><button onClick={() => window.location.reload()} className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm font-bold text-slate-200 hover:bg-white/5"><RefreshCw className="h-4 w-4" />Refresh</button></div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        {[['Pending Triage', pendingTriageCount, Clock], ['In Repair', inRepairCount, Truck], ['Awaiting Verification', awaitingVerificationCount, FileCheck], ['Verified', verifiedCount, CheckCircle2], ['Protected Funds', `₹${Math.round(totalProtectedFunds).toLocaleString('en-IN')}`, ShieldCheck]].map(([label, value, Icon]: any) => <div key={String(label)} className="rounded-xl border border-white/10 bg-white/[0.03] p-4"><Icon className="mb-3 h-5 w-5 text-cyan-300" /><div className="text-2xl font-black text-white">{value}</div><div className="mt-1 text-xs font-bold uppercase tracking-wide text-slate-500">{label}</div></div>)}
-      </div>
-      <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.02] p-4 sm:p-5">
-        <div className="mb-4 flex flex-wrap gap-2"><button onClick={() => setActiveTab('triage')} className={`rounded-lg px-3 py-2 text-sm font-bold ${activeTab === 'triage' ? 'bg-cyan-500 text-slate-950' : 'text-slate-300 hover:bg-white/5'}`}>Triage</button><button onClick={() => setActiveTab('verification')} className={`rounded-lg px-3 py-2 text-sm font-bold ${activeTab === 'verification' ? 'bg-cyan-500 text-slate-950' : 'text-slate-300 hover:bg-white/5'}`}>Verification</button><button onClick={() => setActiveTab('analytics')} className={`rounded-lg px-3 py-2 text-sm font-bold ${activeTab === 'analytics' ? 'bg-cyan-500 text-slate-950' : 'text-slate-300 hover:bg-white/5'}`}>Analytics</button><button onClick={() => setActiveTab('contractors')} className={`rounded-lg px-3 py-2 text-sm font-bold ${activeTab === 'contractors' ? 'bg-cyan-500 text-slate-950' : 'text-slate-300 hover:bg-white/5'}`}>Contractors</button></div>
-        {activeTab === 'triage' && <><div className="mb-4 flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" /><input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search live reports" className="w-full rounded-lg border border-white/10 bg-black/20 py-2 pl-9 pr-3 text-sm text-white outline-none focus:border-cyan-500/50" /></div><select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)} className="rounded-lg border border-white/10 bg-[#111827] px-3 py-2 text-sm text-white"><option value="all">All statuses</option>{['reported','ai_analyzed','routed','assigned','repair_in_progress','repair_claimed','verified','suspicious','closed'].map(s => <option key={s} value={s}>{s.replaceAll('_',' ')}</option>)}</select></div><div className="space-y-3">{filtered.length === 0 ? <div className="rounded-xl border border-dashed border-white/10 p-8 text-center text-sm text-slate-500">No live reports match the filters.</div> : filtered.slice(0, 50).map(c => <div key={c.id} className="rounded-xl border border-white/10 bg-black/10 p-4"><div className="flex flex-col justify-between gap-3 sm:flex-row"><div><div className="text-sm font-black text-white">{c.id}</div><div className="mt-1 text-sm text-slate-300">{c.location.formattedAddress || `${c.location.road}, ${c.location.city}`}</div><div className="mt-2 text-xs text-slate-500">{c.description}</div></div><div className="flex items-start gap-2"><span className="rounded-full bg-white/5 px-2 py-1 text-[10px] font-bold uppercase text-slate-300">{c.status.replaceAll('_',' ')}</span><button onClick={() => onSelectComplaintForVerification?.(c)} className="rounded-lg border border-white/10 p-2 text-slate-300 hover:bg-white/5" title="Open verification"><ExternalLink className="h-4 w-4" /></button></div></div><div className="mt-3 flex flex-wrap gap-2">{c.status !== 'repair_in_progress' && c.status !== 'verified' && <button onClick={() => handleStatusUpdate(c, 'repair_in_progress')} className="rounded-lg bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-300">Mark in repair</button>}{c.status === 'repair_in_progress' && <button onClick={() => handleStatusUpdate(c, 'repair_claimed')} className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-300">Mark repair claimed</button>}</div></div>)}</div></>}
-        {activeTab === 'verification' && <div className="rounded-xl border border-white/10 p-5"><h2 className="font-black text-white">Repair verification queue</h2><p className="mt-1 text-sm text-slate-400">Reports with claimed repairs can be opened in the verification center.</p><div className="mt-4 space-y-2">{complaints.filter(c => c.status === 'repair_claimed' || c.afterImage).map(c => <button key={c.id} onClick={() => onSelectComplaintForVerification?.(c)} className="flex w-full items-center justify-between rounded-lg bg-white/[0.03] p-3 text-left hover:bg-white/[0.06]"><span><span className="block text-sm font-bold text-white">{c.id}</span><span className="text-xs text-slate-500">{c.location.formattedAddress}</span></span><ChevronRight className="h-4 w-4 text-slate-500" /></button>)}</div></div>}
-        {activeTab === 'analytics' && <div className="grid gap-5 lg:grid-cols-2"><div className="h-72 rounded-xl border border-white/10 p-4"><ResponsiveContainer width="100%" height="100%"><BarChart data={[{name:'Reported',value:pendingTriageCount},{name:'Repair',value:inRepairCount},{name:'Verified',value:verifiedCount},{name:'Suspicious',value:suspiciousCount}]}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis allowDecimals={false} /><Tooltip /><Bar dataKey="value" /></BarChart></ResponsiveContainer></div><div className="h-72 rounded-xl border border-white/10 p-4"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={[{name:'Pending',value:pendingTriageCount},{name:'Repair',value:inRepairCount},{name:'Verified',value:verifiedCount},{name:'Suspicious',value:suspiciousCount}]} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label><Cell /> <Cell /> <Cell /> <Cell /></Pie></PieChart></ResponsiveContainer></div></div>}
-        {activeTab === 'contractors' && (
-          <div className="rounded-xl border border-white/10 p-5 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-white/10 pb-4">
-              <div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-lg">📐</span>
-                  <h2 className="font-black text-white text-base">Contractor Repair Workflow: Match the Original View</h2>
-                </div>
-                <p className="mt-1 text-xs text-slate-400">
-                  Contractors must capture post-repair evidence from a viewpoint similar to the original citizen defect photo to pass multi-stage verification.
-                </p>
+    <div className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl space-y-6">
+
+        {/* HEADER */}
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700">
+                <Building2 className="h-3.5 w-3.5" />
+                Municipal Authority Hub
               </div>
+
+              <h1 className="mt-3 text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">
+                Municipal Operations
+              </h1>
+
+              <p className="mt-2 text-sm text-slate-500">
+                Manage reports, repair progress,
+                verification and civic operations.
+              </p>
             </div>
 
-            <div className="space-y-3">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-cyan-400">
-                Active Repair Dispatches ({complaints.filter(c => c.status === 'repair_in_progress' || c.status === 'assigned').length})
-              </h3>
-
-              {complaints.filter(c => c.status === 'repair_in_progress' || c.status === 'assigned').length === 0 ? (
-                <div className="rounded-xl border border-dashed border-white/10 p-6 text-center text-xs text-slate-400">
-                  No repairs currently in progress. Dispatch a crew from the Triage tab to test repair submission.
-                </div>
-              ) : (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {complaints
-                    .filter(c => c.status === 'repair_in_progress' || c.status === 'assigned')
-                    .map(c => (
-                      <div key={c.id} className="rounded-xl border border-white/10 bg-white/[0.02] p-4 flex flex-col justify-between space-y-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <span className="font-mono text-xs font-bold text-cyan-300">{c.id}</span>
-                            <div className="text-sm font-bold text-white mt-0.5">{c.location.road}</div>
-                            <div className="text-xs text-slate-400">{c.location.city} • Defect: {c.defectType}</div>
-                          </div>
-                          {c.beforeImage && (
-                            <img
-                              src={c.beforeImage}
-                              alt="Defect"
-                              className="h-14 w-14 rounded-lg object-cover border border-white/10 shrink-0"
-                              referrerPolicy="no-referrer"
-                            />
-                          )}
-                        </div>
-
-                        <div className="flex items-center justify-between pt-2 border-t border-white/5">
-                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                            {c.status.replaceAll('_', ' ')}
-                          </span>
-
-                          <button
-                            type="button"
-                            onClick={() => setMatchingComplaint(c)}
-                            className="inline-flex items-center space-x-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-500 transition-colors shadow-sm"
-                          >
-                            <span>📐</span>
-                            <span>Match Original View</span>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              )}
-            </div>
+            <button
+              onClick={() =>
+                window.location.reload()
+              }
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </button>
           </div>
+        </section>
+
+        {/* STAT CARDS */}
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+
+          {[
+            {
+              label: 'Pending Triage',
+              value: pendingTriageCount,
+              icon: Clock,
+              bg: 'bg-amber-50',
+              iconColor: 'text-amber-600',
+            },
+            {
+              label: 'In Repair',
+              value: inRepairCount,
+              icon: Truck,
+              bg: 'bg-blue-50',
+              iconColor: 'text-blue-600',
+            },
+            {
+              label: 'Awaiting Verification',
+              value: awaitingVerificationCount,
+              icon: FileCheck,
+              bg: 'bg-violet-50',
+              iconColor: 'text-violet-600',
+            },
+            {
+              label: 'Verified',
+              value: verifiedCount,
+              icon: CheckCircle2,
+              bg: 'bg-emerald-50',
+              iconColor: 'text-emerald-600',
+            },
+            {
+              label: 'Protected Funds',
+              value: `₹${Math.round(
+                totalProtectedFunds
+              ).toLocaleString('en-IN')}`,
+              icon: ShieldCheck,
+              bg: 'bg-slate-100',
+              iconColor: 'text-slate-700',
+            },
+          ].map((item) => {
+            const Icon = item.icon;
+
+            return (
+              <div
+                key={item.label}
+                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+              >
+                <div
+                  className={`flex h-10 w-10 items-center justify-center rounded-xl ${item.bg}`}
+                >
+                  <Icon
+                    className={`h-5 w-5 ${item.iconColor}`}
+                  />
+                </div>
+
+                <div className="mt-4 text-2xl font-black text-slate-900">
+                  {item.value}
+                </div>
+
+                <div className="mt-1 text-xs font-semibold text-slate-400">
+                  {item.label}
+                </div>
+              </div>
+            );
+          })}
+        </section>
+
+        {/* MAIN PANEL */}
+        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+
+          {/* TABS */}
+          <div className="flex flex-wrap gap-1 border-b border-slate-200 bg-slate-50 p-2">
+            {[
+              ['triage', 'Triage'],
+              ['verification', 'Verification'],
+              ['analytics', 'Analytics'],
+              ['contractors', 'Contractors'],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                onClick={() =>
+                  setActiveTab(
+                    value as
+                      | 'triage'
+                      | 'verification'
+                      | 'analytics'
+                      | 'contractors'
+                  )
+                }
+                className={`rounded-xl px-4 py-2.5 text-sm font-bold transition ${
+                  activeTab === value
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-slate-500 hover:bg-white/70 hover:text-slate-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="p-5 sm:p-6">
+
+            {/* TRIAGE */}
+            {activeTab === 'triage' && (
+              <>
+                <div className="mb-5">
+                  <h2 className="text-lg font-black text-slate-900">
+                    Report Triage
+                  </h2>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    Review incoming reports and move
+                    them through the repair workflow.
+                  </p>
+                </div>
+
+                <div className="mb-5 flex flex-col gap-3 sm:flex-row">
+
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
+                    <input
+                      value={searchQuery}
+                      onChange={(e) =>
+                        setSearchQuery(
+                          e.target.value
+                        )
+                      }
+                      placeholder="Search reports, roads or cities..."
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm text-slate-700 outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+
+                  <select
+                    value={selectedStatus}
+                    onChange={(e) =>
+                      setSelectedStatus(
+                        e.target.value
+                      )
+                    }
+                    className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  >
+                    <option value="all">
+                      All statuses
+                    </option>
+
+                    {[
+                      'reported',
+                      'ai_analyzed',
+                      'routed',
+                      'assigned',
+                      'repair_in_progress',
+                      'repair_claimed',
+                      'verified',
+                      'suspicious',
+                      'closed',
+                    ].map((status) => (
+                      <option
+                        key={status}
+                        value={status}
+                      >
+                        {status.replaceAll(
+                          '_',
+                          ' '
+                        )}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-3">
+                  {filtered.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+                      <Search className="mx-auto h-7 w-7 text-slate-300" />
+
+                      <p className="mt-3 text-sm font-semibold text-slate-500">
+                        No reports match the filters.
+                      </p>
+                    </div>
+                  ) : (
+                    filtered
+                      .slice(0, 50)
+                      .map((complaint) => (
+                        <div
+                          key={complaint.id}
+                          className="rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-blue-200 hover:shadow-sm"
+                        >
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded-lg bg-blue-50 px-2.5 py-1 font-mono text-xs font-bold text-blue-700">
+                                  {complaint.id}
+                                </span>
+
+                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase text-slate-500">
+                                  {complaint.status.replaceAll(
+                                    '_',
+                                    ' '
+                                  )}
+                                </span>
+                              </div>
+
+                              <div className="mt-3 flex items-start gap-2">
+                                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+
+                                <div>
+                                  <p className="text-sm font-bold text-slate-800">
+                                    {complaint.location.formattedAddress ||
+                                      `${complaint.location.road}, ${complaint.location.city}`}
+                                  </p>
+
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {complaint.description}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+
+                            <button
+                              onClick={() =>
+                                onSelectComplaintForVerification?.(
+                                  complaint
+                                )
+                              }
+                              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                            >
+                              Open verification
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+
+                          <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
+
+                            {complaint.status !==
+                              'repair_in_progress' &&
+                              complaint.status !==
+                                'verified' && (
+                                <button
+                                  onClick={() =>
+                                    handleStatusUpdate(
+                                      complaint,
+                                      'repair_in_progress'
+                                    )
+                                  }
+                                  className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100"
+                                >
+                                  Mark in repair
+                                </button>
+                              )}
+
+                            {complaint.status ===
+                              'repair_in_progress' && (
+                              <button
+                                onClick={() =>
+                                  handleStatusUpdate(
+                                    complaint,
+                                    'repair_claimed'
+                                  )
+                                }
+                                className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-100"
+                              >
+                                Mark repair claimed
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* VERIFICATION */}
+            {activeTab === 'verification' && (
+              <div>
+                <div className="mb-5">
+                  <h2 className="text-lg font-black text-slate-900">
+                    Repair Verification Queue
+                  </h2>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    Open claimed repairs in the AI
+                    verification center.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  {complaints.filter(
+                    (c) =>
+                      c.status ===
+                        'repair_claimed' ||
+                      c.afterImage
+                  ).length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+                      <FileCheck className="mx-auto h-7 w-7 text-slate-300" />
+
+                      <p className="mt-3 text-sm font-semibold text-slate-500">
+                        No repairs awaiting verification.
+                      </p>
+                    </div>
+                  ) : (
+                    complaints
+                      .filter(
+                        (c) =>
+                          c.status ===
+                            'repair_claimed' ||
+                          c.afterImage
+                      )
+                      .map((complaint) => (
+                        <button
+                          key={complaint.id}
+                          onClick={() =>
+                            onSelectComplaintForVerification?.(
+                              complaint
+                            )
+                          }
+                          className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-blue-200 hover:bg-blue-50/30"
+                        >
+                          <div>
+                            <span className="font-mono text-xs font-bold text-blue-600">
+                              {complaint.id}
+                            </span>
+
+                            <span className="mt-1 block text-sm font-semibold text-slate-800">
+                              {complaint.location.formattedAddress}
+                            </span>
+                          </div>
+
+                          <ChevronRight className="h-5 w-5 text-slate-400" />
+                        </button>
+                      ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ANALYTICS */}
+            {activeTab === 'analytics' && (
+              <div>
+                <div className="mb-5">
+                  <div className="flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5 text-blue-600" />
+
+                    <h2 className="text-lg font-black text-slate-900">
+                      Operations Analytics
+                    </h2>
+                  </div>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    Current report and repair workflow
+                    distribution.
+                  </p>
+                </div>
+
+                <div className="grid gap-5 lg:grid-cols-2">
+
+                  <div className="h-80 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <ResponsiveContainer
+                      width="100%"
+                      height="100%"
+                    >
+                      <BarChart
+                        data={[
+                          {
+                            name: 'Reported',
+                            value:
+                              pendingTriageCount,
+                          },
+                          {
+                            name: 'Repair',
+                            value: inRepairCount,
+                          },
+                          {
+                            name: 'Verified',
+                            value: verifiedCount,
+                          },
+                          {
+                            name: 'Suspicious',
+                            value: suspiciousCount,
+                          },
+                        ]}
+                      >
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          stroke="#e2e8f0"
+                        />
+
+                        <XAxis
+                          dataKey="name"
+                          tick={{
+                            fill: '#64748b',
+                            fontSize: 11,
+                          }}
+                        />
+
+                        <YAxis
+                          allowDecimals={false}
+                          tick={{
+                            fill: '#64748b',
+                            fontSize: 11,
+                          }}
+                        />
+
+                        <Tooltip />
+
+                        <Bar
+                          dataKey="value"
+                          fill="#2563eb"
+                          radius={[6, 6, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  <div className="h-80 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <ResponsiveContainer
+                      width="100%"
+                      height="100%"
+                    >
+                      <PieChart>
+                        <Pie
+                          data={[
+                            {
+                              name: 'Pending',
+                              value:
+                                pendingTriageCount,
+                            },
+                            {
+                              name: 'Repair',
+                              value:
+                                inRepairCount,
+                            },
+                            {
+                              name: 'Verified',
+                              value:
+                                verifiedCount,
+                            },
+                            {
+                              name: 'Suspicious',
+                              value:
+                                suspiciousCount,
+                            },
+                          ]}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          outerRadius={90}
+                          label
+                        >
+                          {[
+                            0, 1, 2, 3,
+                          ].map((index) => (
+                            <Cell
+                              key={index}
+                              fill={
+                                CHART_COLORS[
+                                  index
+                                ]
+                              }
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* CONTRACTORS */}
+            {activeTab === 'contractors' && (
+              <div>
+                <div className="mb-5">
+                  <h2 className="text-lg font-black text-slate-900">
+                    Contractor Repair Workflow
+                  </h2>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    Capture post-repair evidence from a
+                    viewpoint similar to the original
+                    citizen report.
+                  </p>
+                </div>
+
+                <div className="mb-4 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+                  <p className="text-xs font-semibold leading-5 text-blue-800">
+                    Contractors must provide repair
+                    evidence that can be compared with
+                    the original defect before the repair
+                    is verified.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  {complaints.filter(
+                    (c) =>
+                      c.status ===
+                        'repair_in_progress' ||
+                      c.status === 'assigned'
+                  ).length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+                      <Truck className="mx-auto h-8 w-8 text-slate-300" />
+
+                      <p className="mt-3 text-sm font-semibold text-slate-500">
+                        No active repair dispatches.
+                      </p>
+
+                      <p className="mt-1 text-xs text-slate-400">
+                        Move a report into repair from
+                        the Triage tab.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {complaints
+                        .filter(
+                          (c) =>
+                            c.status ===
+                              'repair_in_progress' ||
+                            c.status === 'assigned'
+                        )
+                        .map((complaint) => (
+                          <div
+                            key={complaint.id}
+                            className="rounded-2xl border border-slate-200 bg-white p-4"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+
+                              <div>
+                                <span className="font-mono text-xs font-bold text-blue-600">
+                                  {complaint.id}
+                                </span>
+
+                                <h3 className="mt-1 text-sm font-bold text-slate-800">
+                                  {complaint.location.road}
+                                </h3>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {complaint.location.city}
+                                  {' • '}
+                                  {complaint.defectType}
+                                </p>
+                              </div>
+
+                              {complaint.beforeImage && (
+                                <img
+                                  src={
+                                    complaint.beforeImage
+                                  }
+                                  alt="Reported defect"
+                                  className="h-14 w-14 rounded-xl border border-slate-200 object-cover"
+                                  referrerPolicy="no-referrer"
+                                />
+                              )}
+                            </div>
+
+                            <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
+                              <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase text-amber-700">
+                                {complaint.status.replaceAll(
+                                  '_',
+                                  ' '
+                                )}
+                              </span>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setMatchingComplaint(
+                                    complaint
+                                  )
+                                }
+                                className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"
+                              >
+                                Match Original View
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* MODAL */}
+        {matchingComplaint && (
+          <MatchOriginalViewModal
+            isOpen={Boolean(
+              matchingComplaint
+            )}
+            onClose={() =>
+              setMatchingComplaint(null)
+            }
+            complaint={matchingComplaint}
+            onSubmitRepair={
+              handleContractorMatchSubmission
+            }
+          />
         )}
       </div>
-      {matchingComplaint && (
-        <MatchOriginalViewModal
-          isOpen={Boolean(matchingComplaint)}
-          onClose={() => setMatchingComplaint(null)}
-          complaint={matchingComplaint}
-          onSubmitRepair={handleContractorMatchSubmission}
-        />
-      )}
-      {evidenceModalComplaint && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"><div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#111827] p-5"><button onClick={() => setEvidenceModalComplaint(null)} className="float-right text-slate-400"><X /></button><h3 className="font-black text-white">Repair evidence — {evidenceModalComplaint.id}</h3><p className="mt-2 text-sm text-slate-400">Upload a real post-repair image instead of selecting a demo asset.</p><input ref={fileInputRef} type="file" accept="image/*" className="mt-4 block w-full text-sm text-slate-300" onChange={e => { const f=e.target.files?.[0]; if(f){setEvidenceImage(URL.createObjectURL(f));}}} /><input value={contractorName} onChange={e=>setContractorName(e.target.value)} placeholder="Contractor name" className="mt-3 w-full rounded-lg border border-white/10 bg-black/20 p-2 text-sm text-white" /><textarea value={repairNotes} onChange={e=>setRepairNotes(e.target.value)} placeholder="Repair notes" className="mt-3 w-full rounded-lg border border-white/10 bg-black/20 p-2 text-sm text-white" /><button onClick={() => { setEvidenceModalComplaint(null); showToast('Evidence captured locally. Connect storage to persist the image.', 'info'); }} className="mt-4 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-black text-slate-950">Save evidence</button></div></div>}
     </div>
   );
 };

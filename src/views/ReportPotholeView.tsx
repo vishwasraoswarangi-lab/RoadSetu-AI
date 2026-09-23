@@ -10,31 +10,38 @@ import {
   AlertTriangle,
   ArrowRight,
   ArrowLeft,
-  Navigation,
   Search,
   RefreshCw,
   Lock,
-  Layers,
   FileCheck,
   Loader2,
   ExternalLink,
-  Info,
+  Sparkles,
 } from 'lucide-react';
+
 import { useAuth } from '../context/AuthContext';
 import { useComplaints } from '../context/ComplaintsContext';
 import { HumanLocationCard } from '../components/HumanLocationCard';
-import { HumanLocation, SeverityLevel, Complaint } from '../types';
+import {
+  HumanLocation,
+  SeverityLevel,
+  Complaint,
+} from '../types';
+
 import {
   reverseGeocodeCoords,
   searchGeocodeLocations,
   getCurrentUserLocation,
   GeocodeSearchResult,
 } from '../utils/reverseGeocode';
+
 import { NavView } from '../components/Navbar';
 
 interface ReportPotholeViewProps {
   onNavigate: (view: NavView) => void;
-  onSelectComplaintForVerification?: (complaint: Complaint) => void;
+  onSelectComplaintForVerification?: (
+    complaint: Complaint
+  ) => void;
 }
 
 const SAMPLE_PHOTOS = [
@@ -58,75 +65,147 @@ const SAMPLE_PHOTOS = [
   },
 ];
 
-export const ReportPotholeView: React.FC<ReportPotholeViewProps> = ({
+export const ReportPotholeView: React.FC<
+  ReportPotholeViewProps
+> = ({
   onNavigate,
   onSelectComplaintForVerification,
 }) => {
   const { user, openAuthModal, showToast } = useAuth();
-  const { addComplaint, checkForDuplicates } = useComplaints();
 
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
+  const {
+    addComplaint,
+    checkForDuplicates,
+  } = useComplaints();
 
-  // Step 1: Photo state
-  const [photoUrl, setPhotoUrl] = useState<string>(SAMPLE_PHOTOS[0].url);
-  const [base64Image, setBase64Image] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [currentStep, setCurrentStep] =
+    useState<1 | 2 | 3 | 4>(1);
 
-  // Step 2: Location state
-  const [locationMode, setLocationMode] = useState<'gps' | 'search' | 'manual'>('gps');
-  const [locationSource, setLocationSource] = useState<'gps' | 'ip' | 'search' | 'manual'>('ip');
-  const [isIframeBlocked, setIsIframeBlocked] = useState(false);
-  const [locationLoading, setLocationLoading] = useState(false);
-  const [locationError, setLocationError] = useState<string | null>(null);
-  const [locationSuccessText, setLocationSuccessText] = useState<string>('Detecting location...');
-  const [humanLocation, setHumanLocation] = useState<HumanLocation>({
-    road: 'Detecting Corridor...',
-    area: 'Current Area',
-    landmark: 'Municipal Landmark',
-    city: 'Detecting City...',
-    state: 'State',
-    country: 'India',
-    formattedAddress: 'Acquiring real-time location telemetry...',
-    latitude: 19.2312,
-    longitude: 72.9765,
-  });
+  /* ---------------- PHOTO ---------------- */
 
-  // Automatically attempt user location capture on view mount
+  const [photoUrl, setPhotoUrl] = useState<string>(
+    SAMPLE_PHOTOS[0].url
+  );
+
+  const [base64Image, setBase64Image] =
+    useState<string | null>(null);
+
+  const fileInputRef =
+    useRef<HTMLInputElement>(null);
+
+  /* ---------------- LOCATION ---------------- */
+
+  const [locationMode, setLocationMode] =
+    useState<'gps' | 'search' | 'manual'>('gps');
+
+  const [locationSource, setLocationSource] =
+    useState<
+      'gps' | 'ip' | 'search' | 'manual'
+    >('ip');
+
+  const [isIframeBlocked, setIsIframeBlocked] =
+    useState(false);
+
+  const [locationLoading, setLocationLoading] =
+    useState(false);
+
+  const [locationError, setLocationError] =
+    useState<string | null>(null);
+
+  const [locationSuccessText, setLocationSuccessText] =
+    useState('Detecting location...');
+
+  const [humanLocation, setHumanLocation] =
+    useState<HumanLocation>({
+      road: 'Detecting Corridor...',
+      area: 'Current Area',
+      landmark: 'Municipal Landmark',
+      city: 'Detecting City...',
+      state: 'State',
+      country: 'India',
+      formattedAddress:
+        'Acquiring real-time location telemetry...',
+      latitude: 19.2312,
+      longitude: 72.9765,
+    });
+
   useEffect(() => {
     let active = true;
+
     const autoDetect = async () => {
       setLocationLoading(true);
-      const res = await getCurrentUserLocation(true);
+
+      const res =
+        await getCurrentUserLocation(true);
+
       if (!active) return;
 
-      if (res.status === 'success' && res.coords) {
-        setLocationSource(res.source || 'gps');
+      if (
+        res.status === 'success' &&
+        res.coords
+      ) {
+        setLocationSource(
+          res.source || 'gps'
+        );
+
         try {
-          const detected = await reverseGeocodeCoords(res.coords.latitude, res.coords.longitude);
+          const detected =
+            await reverseGeocodeCoords(
+              res.coords.latitude,
+              res.coords.longitude
+            );
+
           if (active) {
             setHumanLocation(detected);
-            setLocationSuccessText(res.source === 'gps' ? 'Live GPS detected ✓' : 'Network location detected ✓');
+
+            setLocationSuccessText(
+              res.source === 'gps'
+                ? 'Live GPS detected ✓'
+                : 'Network location detected ✓'
+            );
           }
         } catch {
           if (active) {
             setHumanLocation({
-              road: res.city ? `${res.city} Main Road` : 'Current Coordinate Road',
-              area: res.region || 'Detected Area',
+              road: res.city
+                ? `${res.city} Main Road`
+                : 'Current Coordinate Road',
+              area:
+                res.region || 'Detected Area',
               landmark: '',
-              city: res.city || 'Municipal Area',
+              city:
+                res.city || 'Municipal Area',
               state: res.region || '',
-              country: res.country || 'India',
-              formattedAddress: `${res.city ? `${res.city}, ` : ''}Lat: ${res.coords.latitude.toFixed(4)}, Lon: ${res.coords.longitude.toFixed(4)}`,
-              latitude: res.coords.latitude,
-              longitude: res.coords.longitude,
+              country:
+                res.country || 'India',
+              formattedAddress: `${
+                res.city
+                  ? `${res.city}, `
+                  : ''
+              }Lat: ${res.coords.latitude.toFixed(
+                4
+              )}, Lon: ${res.coords.longitude.toFixed(
+                4
+              )}`,
+              latitude:
+                res.coords.latitude,
+              longitude:
+                res.coords.longitude,
             });
-            setLocationSuccessText(res.source === 'gps' ? 'Live GPS captured ✓' : 'Network location captured ✓');
+
+            setLocationSuccessText(
+              res.source === 'gps'
+                ? 'Live GPS captured ✓'
+                : 'Network location captured ✓'
+            );
           }
         }
       } else {
         if (active) {
-          if (res.isIframeBlocked) setIsIframeBlocked(true);
-          // Set fallback to default Thane/Mumbai location
+          if (res.isIframeBlocked) {
+            setIsIframeBlocked(true);
+          }
+
           setHumanLocation({
             road: 'Ghodbunder Road (SH-42)',
             area: 'Manpada Sector 4',
@@ -134,150 +213,302 @@ export const ReportPotholeView: React.FC<ReportPotholeViewProps> = ({
             city: 'Thane',
             state: 'Maharashtra',
             country: 'India',
-            formattedAddress: 'Ghodbunder Road, Near Manpada Junction, Thane, Maharashtra',
+            formattedAddress:
+              'Ghodbunder Road, Near Manpada Junction, Thane, Maharashtra',
             latitude: 19.2312,
             longitude: 72.9765,
           });
-          setLocationSuccessText('Corridor default set');
+
+          setLocationSuccessText(
+            'Corridor default set'
+          );
         }
       }
-      if (active) setLocationLoading(false);
+
+      if (active) {
+        setLocationLoading(false);
+      }
     };
 
     autoDetect();
+
     return () => {
       active = false;
     };
   }, []);
 
-  const [searchLocationQuery, setSearchLocationQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<GeocodeSearchResult[]>([]);
-  const [isSearchingGeocode, setIsSearchingGeocode] = useState(false);
+  const [
+    searchLocationQuery,
+    setSearchLocationQuery,
+  ] = useState('');
 
-  const [manualRoad, setManualRoad] = useState('');
-  const [manualLandmark, setManualLandmark] = useState('');
-  const [manualCity, setManualCity] = useState('');
+  const [searchResults, setSearchResults] =
+    useState<GeocodeSearchResult[]>([]);
 
-  // Step 3: Description & Voice state
-  const [description, setDescription] = useState(
-    'Significant cavity on road causing dangerous vehicle swerves. Water accumulated and high safety risk.'
-  );
-  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
-  const [voiceSeconds, setVoiceSeconds] = useState(0);
-  const [selectedSeverity, setSelectedSeverity] = useState<SeverityLevel>('Critical');
+  const [
+    isSearchingGeocode,
+    setIsSearchingGeocode,
+  ] = useState(false);
 
-  // Step 4: AI scanning and duplicate state
-  const [isAiAnalyzing, setIsAiAnalyzing] = useState(false);
-  const [aiAnalysisComplete, setAiAnalysisComplete] = useState(false);
-  const [generatedComplaint, setGeneratedComplaint] = useState<Complaint | null>(null);
-  const [duplicateWarning, setDuplicateWarning] = useState<{
+  const [manualRoad, setManualRoad] =
+    useState('');
+
+  const [manualLandmark, setManualLandmark] =
+    useState('');
+
+  const [manualCity, setManualCity] =
+    useState('');
+
+  /* ---------------- DETAILS ---------------- */
+
+  const [description, setDescription] =
+    useState(
+      'Significant cavity on road causing dangerous vehicle swerves. Water accumulated and high safety risk.'
+    );
+
+  const [
+    isRecordingVoice,
+    setIsRecordingVoice,
+  ] = useState(false);
+
+  const [voiceSeconds, setVoiceSeconds] =
+    useState(0);
+
+  const [
+    selectedSeverity,
+    setSelectedSeverity,
+  ] = useState<SeverityLevel>('Critical');
+
+  /* ---------------- AI ---------------- */
+
+  const [
+    isAiAnalyzing,
+    setIsAiAnalyzing,
+  ] = useState(false);
+
+  const [
+    aiAnalysisComplete,
+    setAiAnalysisComplete,
+  ] = useState(false);
+
+  const [
+    generatedComplaint,
+    setGeneratedComplaint,
+  ] = useState<Complaint | null>(null);
+
+  const [
+    duplicateWarning,
+    setDuplicateWarning,
+  ] = useState<{
     hasDuplicate: boolean;
     existing?: Complaint;
     distance?: number;
   } | null>(null);
 
-  const [aiDetails, setAiDetails] = useState<{
-    defectType?: string;
-    hazardScore?: number;
-    confidence?: number;
-    aiSummary?: string;
-    recommendedAction?: string;
-  }>({});
+  const [aiDetails, setAiDetails] =
+    useState<{
+      defectType?: string;
+      hazardScore?: number;
+      confidence?: number;
+      aiSummary?: string;
+      recommendedAction?: string;
+    }>({});
 
-  // Real device Geolocation capture
+  /* ---------------- GPS ---------------- */
+
   const handleCaptureGps = async () => {
     setLocationLoading(true);
     setLocationError(null);
-    setLocationSuccessText('Finding your location...');
+    setLocationSuccessText(
+      'Finding your location...'
+    );
 
-    const res = await getCurrentUserLocation(true);
+    const res =
+      await getCurrentUserLocation(true);
 
-    if (res.status === 'success' && res.coords) {
-      const isGps = res.source === 'gps';
-      setLocationSource(res.source || 'gps');
+    if (
+      res.status === 'success' &&
+      res.coords
+    ) {
+      const isGps =
+        res.source === 'gps';
+
+      setLocationSource(
+        res.source || 'gps'
+      );
 
       try {
-        const detected = await reverseGeocodeCoords(res.coords.latitude, res.coords.longitude);
+        const detected =
+          await reverseGeocodeCoords(
+            res.coords.latitude,
+            res.coords.longitude
+          );
+
         setHumanLocation(detected);
-        setLocationSuccessText(isGps ? 'Live GPS detected ✓' : 'Network location detected ✓');
-        showToast(`Location detected: ${detected.road}, ${detected.city} (${isGps ? 'Live GPS' : 'Network IP'})`, 'success');
+
+        setLocationSuccessText(
+          isGps
+            ? 'Live GPS detected ✓'
+            : 'Network location detected ✓'
+        );
+
+        showToast(
+          `Location detected: ${detected.road}, ${detected.city} (${
+            isGps ? 'Live GPS' : 'Network IP'
+          })`,
+          'success'
+        );
       } catch {
         setHumanLocation({
-          road: res.city ? `${res.city} Main Road` : 'Current Coordinate Road',
-          area: res.region || 'Detected Sector',
+          road: res.city
+            ? `${res.city} Main Road`
+            : 'Current Coordinate Road',
+          area:
+            res.region || 'Detected Sector',
           landmark: '',
-          city: res.city || 'Municipal Area',
+          city:
+            res.city || 'Municipal Area',
           state: res.region || '',
-          country: res.country || 'India',
-          formattedAddress: `${res.city ? `${res.city}, ` : ''}Lat: ${res.coords.latitude.toFixed(4)}, Lon: ${res.coords.longitude.toFixed(4)}`,
-          latitude: res.coords.latitude,
-          longitude: res.coords.longitude,
+          country:
+            res.country || 'India',
+          formattedAddress: `${
+            res.city
+              ? `${res.city}, `
+              : ''
+          }Lat: ${res.coords.latitude.toFixed(
+            4
+          )}, Lon: ${res.coords.longitude.toFixed(
+            4
+          )}`,
+          latitude:
+            res.coords.latitude,
+          longitude:
+            res.coords.longitude,
         });
-        setLocationSuccessText(isGps ? 'GPS coordinates captured ✓' : 'Network coordinates captured ✓');
-        showToast('Coordinates captured successfully', 'success');
+
+        setLocationSuccessText(
+          isGps
+            ? 'GPS coordinates captured ✓'
+            : 'Network coordinates captured ✓'
+        );
+
+        showToast(
+          'Coordinates captured successfully',
+          'success'
+        );
       }
     } else {
       if (res.isIframeBlocked) {
         setIsIframeBlocked(true);
       }
-      setLocationError(res.errorMessage || 'Unable to retrieve location.');
-      showToast(res.errorMessage || 'Location acquisition failed.', 'error');
+
+      setLocationError(
+        res.errorMessage ||
+          'Unable to retrieve location.'
+      );
+
+      showToast(
+        res.errorMessage ||
+          'Location acquisition failed.',
+        'error'
+      );
     }
+
     setLocationLoading(false);
   };
 
-  // Real Geocoding Search using Nominatim
-  const handleLocationSearch = async (e: React.FormEvent) => {
+  /* ---------------- SEARCH ---------------- */
+
+  const handleLocationSearch = async (
+    e: React.FormEvent
+  ) => {
     e.preventDefault();
-    if (!searchLocationQuery.trim()) return;
+
+    if (!searchLocationQuery.trim()) {
+      return;
+    }
 
     setIsSearchingGeocode(true);
+
     try {
-      const results = await searchGeocodeLocations(searchLocationQuery);
+      const results =
+        await searchGeocodeLocations(
+          searchLocationQuery
+        );
+
       setSearchResults(results);
+
       if (results.length === 0) {
-        showToast('No matching locations found. Try a broader search or enter manually.', 'info');
+        showToast(
+          'No matching locations found. Try a broader search or enter manually.',
+          'info'
+        );
       }
-    } catch (err) {
-      showToast('Search query error. Please enter details manually.', 'error');
+    } catch {
+      showToast(
+        'Search query error. Please enter details manually.',
+        'error'
+      );
     } finally {
       setIsSearchingGeocode(false);
     }
   };
 
-  // Handle Photo File Upload and base64 conversion
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  /* ---------------- UPLOAD ---------------- */
+
+  const handleFileUpload = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = e.target.files?.[0];
+
     if (!file) return;
 
     const reader = new FileReader();
+
     reader.onload = () => {
-      const result = reader.result as string;
+      const result =
+        reader.result as string;
+
       setPhotoUrl(result);
       setBase64Image(result);
-      showToast('Defect photo loaded successfully.', 'success');
+
+      showToast(
+        'Defect photo loaded successfully.',
+        'success'
+      );
     };
+
     reader.readAsDataURL(file);
   };
 
-  // Voice recording toggle
+  /* ---------------- VOICE ---------------- */
+
   const toggleVoiceRecording = () => {
     if (!isRecordingVoice) {
       setIsRecordingVoice(true);
       setVoiceSeconds(1);
+
       const interval = setInterval(() => {
         setVoiceSeconds((prev) => {
           if (prev >= 5) {
             clearInterval(interval);
+
             setIsRecordingVoice(false);
+
             setDescription(
               (d) =>
                 d +
                 ' [Voice Transcript: Severe surface cavity observed near vehicular lane divider with high accident risk.]'
             );
-            showToast('Voice note transcribed into description.', 'success');
+
+            showToast(
+              'Voice note transcribed into description.',
+              'success'
+            );
+
             return 0;
           }
+
           return prev + 1;
         });
       }, 1000);
@@ -287,17 +518,30 @@ export const ReportPotholeView: React.FC<ReportPotholeViewProps> = ({
     }
   };
 
-  // Trigger Real AI Defect Analysis & Submission
-  const runAiAnalysisAndSubmit = async (overrideDuplicate = false) => {
+  /* ---------------- AI SUBMISSION ---------------- */
+
+  const runAiAnalysisAndSubmit = async (
+    overrideDuplicate = false
+  ) => {
     if (!overrideDuplicate) {
-      // Check for duplicates nearby (<50m)
-      const dupCheck = checkForDuplicates(humanLocation.latitude, humanLocation.longitude);
-      if (dupCheck.hasDuplicate && dupCheck.existingComplaint) {
+      const dupCheck =
+        checkForDuplicates(
+          humanLocation.latitude,
+          humanLocation.longitude
+        );
+
+      if (
+        dupCheck.hasDuplicate &&
+        dupCheck.existingComplaint
+      ) {
         setDuplicateWarning({
           hasDuplicate: true,
-          existing: dupCheck.existingComplaint,
-          distance: dupCheck.distanceMeters,
+          existing:
+            dupCheck.existingComplaint,
+          distance:
+            dupCheck.distanceMeters,
         });
+
         return;
       }
     }
@@ -306,36 +550,79 @@ export const ReportPotholeView: React.FC<ReportPotholeViewProps> = ({
     setIsAiAnalyzing(true);
 
     let analyzedDefect = 'Pothole';
-    let analyzedSeverity = selectedSeverity;
-    let analyzedHazard = selectedSeverity === 'Critical' ? 90 : selectedSeverity === 'High' ? 75 : 55;
-    let confidence = 92;
-    let aiSummary = 'Neural vision models detected surface cavity with structural asphalt rupture.';
-    let recommendedAction = 'Jetpatcher dispatch with rapid bituminous compaction.';
 
-    // Try calling real backend Gemini analysis
+    let analyzedSeverity =
+      selectedSeverity;
+
+    let analyzedHazard =
+      selectedSeverity === 'Critical'
+        ? 90
+        : selectedSeverity === 'High'
+        ? 75
+        : 55;
+
+    let confidence = 92;
+
+    let aiSummary =
+      'Neural vision models detected surface cavity with structural asphalt rupture.';
+
+    let recommendedAction =
+      'Jetpatcher dispatch with rapid bituminous compaction.';
+
     try {
-      const response = await fetch('/api/analyze-defect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: base64Image || photoUrl,
-          description,
-          location: humanLocation,
-        }),
-      });
+      const response = await fetch(
+        '/api/analyze-defect',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
+          body: JSON.stringify({
+            imageBase64:
+              base64Image || photoUrl,
+            description,
+            location: humanLocation,
+          }),
+        }
+      );
 
       if (response.ok) {
-        const json = await response.json();
-        const data = json.data || json;
-        analyzedDefect = data.defectType || analyzedDefect;
-        analyzedSeverity = data.severity || analyzedSeverity;
-        analyzedHazard = data.hazardScore || analyzedHazard;
-        confidence = data.confidence || confidence;
-        aiSummary = data.aiSummary || aiSummary;
-        recommendedAction = data.recommendedAction || recommendedAction;
+        const json =
+          await response.json();
+
+        const data =
+          json.data || json;
+
+        analyzedDefect =
+          data.defectType ||
+          analyzedDefect;
+
+        analyzedSeverity =
+          data.severity ||
+          analyzedSeverity;
+
+        analyzedHazard =
+          data.hazardScore ||
+          analyzedHazard;
+
+        confidence =
+          data.confidence ||
+          confidence;
+
+        aiSummary =
+          data.aiSummary ||
+          aiSummary;
+
+        recommendedAction =
+          data.recommendedAction ||
+          recommendedAction;
       }
     } catch (e) {
-      console.warn('Real AI endpoint notice, continuing with verified parameters:', e);
+      console.warn(
+        'Real AI endpoint notice, continuing with verified parameters:',
+        e
+      );
     }
 
     setAiDetails({
@@ -347,717 +634,1283 @@ export const ReportPotholeView: React.FC<ReportPotholeViewProps> = ({
     });
 
     try {
-      const created = await addComplaint({
-        description,
-        location: humanLocation,
-        beforeImage: photoUrl,
-        severity: analyzedSeverity,
-        defectType: analyzedDefect,
-        hazardScore: analyzedHazard,
-        confidence,
-        aiSummary,
-        recommendedAction,
-        estimatedRepairDays: analyzedSeverity === 'Critical' ? 1 : 2,
-        department: humanLocation.road.toLowerCase().includes('highway')
-          ? 'National Highway Authority (NHAI)'
-          : `${humanLocation.city || 'Municipal'} Road Engineering Division`,
-      });
+      const created =
+        await addComplaint({
+          description,
+          location: humanLocation,
+          beforeImage: photoUrl,
+          severity: analyzedSeverity,
+          defectType: analyzedDefect,
+          hazardScore: analyzedHazard,
+          confidence,
+          aiSummary,
+          recommendedAction,
+          estimatedRepairDays:
+            analyzedSeverity ===
+            'Critical'
+              ? 1
+              : 2,
+          department:
+            humanLocation.road
+              .toLowerCase()
+              .includes('highway')
+              ? 'National Highway Authority (NHAI)'
+              : `${
+                  humanLocation.city ||
+                  'Municipal'
+                } Road Engineering Division`,
+        });
 
       setGeneratedComplaint(created);
       setAiAnalysisComplete(true);
-    } catch (err) {
-      showToast('Error recording complaint to Firestore.', 'error');
+    } catch {
+      showToast(
+        'Error recording complaint to Firestore.',
+        'error'
+      );
     } finally {
       setIsAiAnalyzing(false);
     }
   };
 
-  // If user is not authenticated, show requirement sign-in gate
+  /* ---------------- LOGIN GATE ---------------- */
+
   if (!user) {
     return (
-      <div className="min-h-screen bg-[#0B0F17] flex items-center justify-center p-4">
-        <div className="relative w-full max-w-lg rounded-3xl border border-slate-800 bg-slate-900/90 p-8 shadow-2xl backdrop-blur-xl text-center">
-          <div className="pointer-events-none absolute -top-16 left-1/2 h-36 w-80 -translate-x-1/2 rounded-full bg-cyan-500/10 blur-3xl" />
+      <div className="min-h-[80vh] bg-slate-50 px-4 py-10 flex items-center justify-center">
 
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 mb-4">
+        <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-xl shadow-slate-200/60">
+
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
             <Lock className="h-7 w-7" />
           </div>
 
-          <h2 className="text-2xl font-black text-white">REPORT ROAD DEFECT</h2>
-          <p className="mt-2 text-sm text-slate-300">
-            Please sign in or register to submit a verified civic complaint.
-          </p>
-          <p className="mt-1 text-xs text-slate-400">
-            Every submission is cryptographically recorded under your authenticated citizen UID in Firestore.
+          <h2 className="text-2xl font-black text-slate-900">
+            Report a Road Defect
+          </h2>
+
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            Please sign in or register to submit a
+            verified civic complaint.
           </p>
 
-          <div className="mt-6 flex flex-col space-y-3">
+          <p className="mt-2 text-xs leading-5 text-slate-400">
+            Your authenticated account is attached
+            to every submitted report.
+          </p>
+
+          <div className="mt-7 space-y-3">
+
             <button
-              onClick={() => openAuthModal('login')}
-              className="w-full rounded-xl bg-cyan-500 py-3 text-xs font-bold text-slate-950 shadow-lg shadow-cyan-500/20 hover:bg-cyan-400 transition-colors"
+              onClick={() =>
+                openAuthModal('login')
+              }
+              className="w-full rounded-xl bg-blue-600 py-3.5 text-sm font-bold text-white transition hover:bg-blue-700"
             >
               Sign In to Citizen Portal
             </button>
 
             <button
-              onClick={() => openAuthModal('signup')}
-              className="w-full rounded-xl border border-slate-700 bg-slate-800/80 py-3 text-xs font-semibold text-slate-200 hover:text-white hover:bg-slate-800 transition-colors"
+              onClick={() =>
+                openAuthModal('signup')
+              }
+              className="w-full rounded-xl border border-slate-200 bg-white py-3.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
             >
               Create New Citizen Account
             </button>
+
           </div>
         </div>
       </div>
     );
   }
 
+  /* ---------------- MAIN ---------------- */
+
   return (
-    <div className="min-h-screen bg-[#0B0F17] p-4 sm:p-6 lg:p-8 text-slate-100">
-      <div className="mx-auto max-w-4xl space-y-6">
-        {/* Header & Stepper */}
-        <div className="border-b border-slate-800 pb-5">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div>
-              <span className="text-xs font-mono font-semibold uppercase tracking-wider text-cyan-400">
-                Civic Report Engine • 4-Step Guided Wizard
-              </span>
-              <h1 className="text-2xl sm:text-3xl font-black text-white mt-0.5">
-                Report Road Defect & Pothole
-              </h1>
-            </div>
-            <div className="text-xs font-mono text-slate-400">
-              Citizen ID: <span className="text-cyan-300 font-semibold">{user.displayName}</span>
-            </div>
+    <div className="min-h-[80vh] bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
+
+      <div className="mx-auto max-w-6xl">
+
+        {/* HEADER */}
+
+        <div className="mb-8">
+
+          <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700">
+            <Sparkles className="h-3.5 w-3.5" />
+            Guided civic reporting
           </div>
 
-          {/* Stepper progress */}
-          <div className="mt-6 grid grid-cols-4 gap-2 sm:gap-4">
-            {[
-              { num: 1, label: '1. Photo Evidence' },
-              { num: 2, label: '2. Location & Corridor' },
-              { num: 3, label: '3. Severity & Details' },
-              { num: 4, label: '4. AI Scanning Analysis' },
-            ].map((s) => (
-              <div
-                key={s.num}
-                className={`rounded-xl border p-2.5 sm:p-3 text-center transition-all ${
-                  currentStep === s.num
-                    ? 'border-cyan-500 bg-cyan-500/15 text-cyan-300 shadow-md shadow-cyan-950/50'
-                    : currentStep > s.num
-                    ? 'border-emerald-500/40 bg-emerald-950/20 text-emerald-400'
-                    : 'border-slate-800 bg-slate-900/40 text-slate-500'
-                }`}
-              >
-                <div className="text-xs sm:text-sm font-bold truncate">{s.label}</div>
-              </div>
-            ))}
+          <div className="mt-4 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+
+            <div>
+              <h1 className="text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">
+                Report Road Defect
+              </h1>
+
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+                Submit photo evidence, confirm the
+                location, describe the issue and let
+                AI analyze the road condition.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-500 shadow-sm">
+              Citizen:{' '}
+              <span className="text-slate-900">
+                {user.displayName}
+              </span>
+            </div>
+
           </div>
         </div>
 
-        {/* STEP 1: PHOTO EVIDENCE */}
+        {/* STEPPER */}
+
+        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+
+          <div className="grid grid-cols-4 gap-2 sm:gap-3">
+
+            {[
+              {
+                num: 1,
+                label: 'Photo',
+              },
+              {
+                num: 2,
+                label: 'Location',
+              },
+              {
+                num: 3,
+                label: 'Details',
+              },
+              {
+                num: 4,
+                label: 'AI Review',
+              },
+            ].map((step) => {
+
+              const active =
+                currentStep === step.num;
+
+              const completed =
+                currentStep > step.num;
+
+              return (
+                <div
+                  key={step.num}
+                  className={`rounded-xl border p-3 text-center transition ${
+                    active
+                      ? 'border-blue-200 bg-blue-50 text-blue-700'
+                      : completed
+                      ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                      : 'border-slate-200 bg-slate-50 text-slate-400'
+                  }`}
+                >
+
+                  <div className="mx-auto flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs font-black shadow-sm">
+                    {completed ? (
+                      <CheckCircle2 className="h-4 w-4" />
+                    ) : (
+                      step.num
+                    )}
+                  </div>
+
+                  <div className="mt-1.5 text-[11px] font-bold sm:text-xs">
+                    {step.label}
+                  </div>
+
+                </div>
+              );
+            })}
+
+          </div>
+        </div>
+
+        {/* STEP 1 */}
+
         {currentStep === 1 && (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl backdrop-blur-md space-y-6">
-            <div>
-              <h3 className="text-lg font-bold text-white flex items-center space-x-2">
-                <Camera className="h-5 w-5 text-cyan-400" />
-                <span>Step 1: Capture or Upload Pothole Photo</span>
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Upload a clear image of the road cavity to run AI defect segmentation and depth estimation.
-              </p>
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+
+            <div className="mb-6 flex items-start justify-between">
+
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-blue-600">
+                  Step 1
+                </p>
+
+                <h2 className="mt-1 text-xl font-black text-slate-900">
+                  Add photo evidence
+                </h2>
+
+                <p className="mt-1 text-sm text-slate-500">
+                  Choose a sample or upload your own road
+                  image.
+                </p>
+              </div>
+
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                <Camera className="h-5 w-5" />
+              </div>
+
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-              <div className="relative h-64 rounded-xl border-2 border-dashed border-cyan-500/40 bg-slate-950/80 overflow-hidden flex flex-col items-center justify-center p-4 group">
+            <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+
+              {/* Preview */}
+
+              <div className="relative min-h-[320px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+
                 <img
                   src={photoUrl}
                   alt="Pothole capture"
-                  className="absolute inset-0 h-full w-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  className="absolute inset-0 h-full w-full object-cover"
                   referrerPolicy="no-referrer"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/20 to-transparent" />
-                <div className="relative z-10 text-center mt-auto pb-2">
-                  <span className="inline-flex items-center space-x-1.5 rounded-full border border-cyan-500/50 bg-slate-900/90 px-3 py-1 text-xs font-semibold text-cyan-300 backdrop-blur-md">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                    <span>Evidence Frame Loaded</span>
+
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/80 to-transparent p-5 pt-20">
+
+                  <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/95 px-3 py-1.5 text-xs font-bold text-slate-800 shadow-sm">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    Evidence frame loaded
                   </span>
+
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider block">
-                  Select Defect Preset or Upload File:
-                </span>
+              {/* Presets */}
+
+              <div>
+
+                <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Defect presets
+                </p>
+
                 <div className="space-y-2">
-                  {SAMPLE_PHOTOS.map((preset, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => {
-                        setPhotoUrl(preset.url);
-                        setBase64Image(null);
-                        setSelectedSeverity(preset.suggestedSeverity);
-                        showToast(`Selected preset: ${preset.title}`, 'info');
-                      }}
-                      className={`flex w-full items-center space-x-3 rounded-xl border p-2.5 text-left transition-all ${
-                        photoUrl === preset.url
-                          ? 'border-cyan-500 bg-cyan-500/10 text-white shadow-sm'
-                          : 'border-slate-800 bg-slate-950/60 text-slate-300 hover:bg-slate-800/80'
-                      }`}
-                    >
-                      <img
-                        src={preset.url}
-                        alt={preset.title}
-                        className="h-12 w-16 rounded-lg object-cover"
-                        referrerPolicy="no-referrer"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-bold text-slate-100 truncate">
-                          {preset.title}
+
+                  {SAMPLE_PHOTOS.map(
+                    (preset, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          setPhotoUrl(
+                            preset.url
+                          );
+
+                          setBase64Image(
+                            null
+                          );
+
+                          setSelectedSeverity(
+                            preset.suggestedSeverity
+                          );
+
+                          showToast(
+                            `Selected preset: ${preset.title}`,
+                            'info'
+                          );
+                        }}
+                        className={`flex w-full items-center gap-3 rounded-xl border p-2.5 text-left transition ${
+                          photoUrl ===
+                          preset.url
+                            ? 'border-blue-300 bg-blue-50'
+                            : 'border-slate-200 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+
+                        <img
+                          src={preset.url}
+                          alt={preset.title}
+                          className="h-14 w-16 rounded-lg object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+
+                        <div className="min-w-0 flex-1">
+
+                          <div className="truncate text-xs font-bold text-slate-900">
+                            {preset.title}
+                          </div>
+
+                          <div className="mt-1 text-[11px] text-slate-500">
+                            Depth: {preset.depth}
+                          </div>
+
+                          <div className="mt-1 text-[11px] font-semibold text-blue-600">
+                            Suggested: {preset.suggestedSeverity}
+                          </div>
+
                         </div>
-                        <div className="text-[11px] text-slate-400 font-mono">
-                          Depth: {preset.depth} • {preset.suggestedSeverity}
-                        </div>
-                      </div>
-                    </button>
-                  ))}
+
+                      </button>
+                    )
+                  )}
+
                 </div>
 
-                <div className="pt-2 flex items-center space-x-3">
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleFileUpload}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex-1 rounded-xl border border-slate-700 bg-slate-800 py-2.5 text-xs font-semibold text-slate-200 hover:bg-slate-700 flex items-center justify-center space-x-2"
-                  >
-                    <Upload className="h-4 w-4 text-cyan-400" />
-                    <span>Upload Custom Photo</span>
-                  </button>
-                </div>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    fileInputRef.current?.click()
+                  }
+                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  <Upload className="h-4 w-4 text-blue-600" />
+                  Upload Custom Photo
+                </button>
+
               </div>
+
             </div>
 
-            <div className="flex justify-end pt-4 border-t border-slate-800">
+            <div className="mt-6 flex justify-end border-t border-slate-100 pt-5">
+
               <button
                 type="button"
-                onClick={() => setCurrentStep(2)}
-                className="inline-flex items-center space-x-2 rounded-xl bg-cyan-500 px-5 py-2.5 text-xs font-bold text-slate-950 shadow-lg shadow-cyan-500/20 hover:bg-cyan-400 transition-colors"
+                onClick={() =>
+                  setCurrentStep(2)
+                }
+                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-blue-700"
               >
-                <span>Proceed to Location</span>
+                Proceed to Location
                 <ArrowRight className="h-4 w-4" />
               </button>
+
             </div>
-          </div>
+
+          </section>
         )}
 
-        {/* STEP 2: LOCATION */}
+        {/* STEP 2 */}
+
         {currentStep === 2 && (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl backdrop-blur-md space-y-6">
-            <div>
-              <h3 className="text-lg font-bold text-white flex items-center space-x-2">
-                <MapPin className="h-5 w-5 text-cyan-400" />
-                <span>Step 2: Capture Defect Location</span>
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Real coordinates translated into human-readable road, area, and landmark.
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+
+            <div className="mb-6">
+
+              <p className="text-xs font-bold uppercase tracking-wide text-blue-600">
+                Step 2
               </p>
+
+              <h2 className="mt-1 text-xl font-black text-slate-900">
+                Confirm defect location
+              </h2>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Use GPS, search for a location, or enter
+                the details manually.
+              </p>
+
             </div>
 
-            {/* Mode Tabs */}
-            <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-3">
+            {/* LOCATION MODES */}
+
+            <div className="mb-5 grid gap-2 sm:grid-cols-3">
+
               <button
                 type="button"
                 onClick={() => {
                   setLocationMode('gps');
                   handleCaptureGps();
                 }}
-                className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all ${
+                className={`rounded-xl border p-3 text-left transition ${
                   locationMode === 'gps'
-                    ? 'bg-cyan-500 text-slate-950 shadow-md'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    ? 'border-blue-300 bg-blue-50'
+                    : 'border-slate-200 bg-white hover:bg-slate-50'
                 }`}
               >
-                A. Use My Location
+                <MapPin className="h-4 w-4 text-blue-600" />
+
+                <div className="mt-2 text-xs font-bold text-slate-900">
+                  Use my location
+                </div>
+
+                <div className="mt-1 text-[11px] text-slate-500">
+                  GPS / network detection
+                </div>
               </button>
 
               <button
                 type="button"
-                onClick={() => setLocationMode('search')}
-                className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all ${
-                  locationMode === 'search'
-                    ? 'bg-cyan-500 text-slate-950 shadow-md'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                onClick={() =>
+                  setLocationMode('search')
+                }
+                className={`rounded-xl border p-3 text-left transition ${
+                  locationMode ===
+                  'search'
+                    ? 'border-blue-300 bg-blue-50'
+                    : 'border-slate-200 bg-white hover:bg-slate-50'
                 }`}
               >
-                B. Search Road / Landmark
+                <Search className="h-4 w-4 text-blue-600" />
+
+                <div className="mt-2 text-xs font-bold text-slate-900">
+                  Search location
+                </div>
+
+                <div className="mt-1 text-[11px] text-slate-500">
+                  Road, landmark or city
+                </div>
               </button>
 
               <button
                 type="button"
-                onClick={() => setLocationMode('manual')}
-                className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all ${
-                  locationMode === 'manual'
-                    ? 'bg-cyan-500 text-slate-950 shadow-md'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                onClick={() =>
+                  setLocationMode('manual')
+                }
+                className={`rounded-xl border p-3 text-left transition ${
+                  locationMode ===
+                  'manual'
+                    ? 'border-blue-300 bg-blue-50'
+                    : 'border-slate-200 bg-white hover:bg-slate-50'
                 }`}
               >
-                C. Enter Manually
+                <FileCheck className="h-4 w-4 text-blue-600" />
+
+                <div className="mt-2 text-xs font-bold text-slate-900">
+                  Enter manually
+                </div>
+
+                <div className="mt-1 text-[11px] text-slate-500">
+                  Add address details
+                </div>
               </button>
+
             </div>
 
-            {/* Mode B: Real Search */}
-            {locationMode === 'search' && (
-              <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/70 p-4">
-                <label className="text-xs font-medium text-slate-300 block">
-                  Search any road, area, landmark, or city worldwide
-                </label>
-                <form onSubmit={handleLocationSearch} className="flex gap-2">
+            {/* SEARCH */}
+
+            {locationMode ===
+              'search' && (
+              <div className="mb-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+
+                <form
+                  onSubmit={
+                    handleLocationSearch
+                  }
+                  className="flex gap-2"
+                >
+
                   <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
                     <input
                       type="text"
-                      value={searchLocationQuery}
-                      onChange={(e) => setSearchLocationQuery(e.target.value)}
-                      placeholder="e.g. Marine Drive Mumbai, Powai Lake, Connaught Place, Bangalore Airport..."
-                      className="w-full rounded-xl border border-slate-700 bg-slate-900 py-2.5 pl-9 pr-3 text-xs text-slate-100 placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
+                      value={
+                        searchLocationQuery
+                      }
+                      onChange={(e) =>
+                        setSearchLocationQuery(
+                          e.target.value
+                        )
+                      }
+                      placeholder="e.g. Marine Drive Mumbai"
+                      className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-9 pr-3 text-sm text-slate-900 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
                     />
+
                   </div>
+
                   <button
                     type="submit"
-                    disabled={isSearchingGeocode}
-                    className="rounded-xl bg-cyan-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 flex items-center space-x-1"
+                    disabled={
+                      isSearchingGeocode
+                    }
+                    className="rounded-xl bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
                   >
-                    {isSearchingGeocode ? <Loader2 className="h-4 w-4 animate-spin" /> : <span>Search</span>}
+                    {isSearchingGeocode ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      'Search'
+                    )}
                   </button>
+
                 </form>
 
-                {/* Results dropdown */}
-                {searchResults.length > 0 && (
-                  <div className="mt-2 space-y-1.5 rounded-xl border border-slate-800 bg-slate-900 p-2 max-h-56 overflow-y-auto">
-                    {searchResults.map((item, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => {
-                          setHumanLocation({
-                            road: item.road,
-                            area: item.area,
-                            landmark: item.landmark || '',
-                            city: item.city,
-                            state: item.state,
-                            country: item.country,
-                            formattedAddress: item.formattedAddress,
-                            latitude: item.latitude,
-                            longitude: item.longitude,
-                          });
-                          setLocationSource('search');
-                          setLocationSuccessText('Search landmark selected ✓');
-                          setSearchResults([]);
-                          showToast(`Selected: ${item.road}`, 'info');
-                        }}
-                        className="w-full text-left p-2 rounded-lg hover:bg-slate-800 transition-colors"
-                      >
-                        <div className="text-xs font-bold text-white">{item.road}</div>
-                        <div className="text-[11px] text-slate-400">{item.formattedAddress}</div>
-                      </button>
-                    ))}
+                {searchResults.length >
+                  0 && (
+                  <div className="mt-3 max-h-56 space-y-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2">
+
+                    {searchResults.map(
+                      (item, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setHumanLocation({
+                              road: item.road,
+                              area: item.area,
+                              landmark:
+                                item.landmark ||
+                                '',
+                              city: item.city,
+                              state: item.state,
+                              country:
+                                item.country,
+                              formattedAddress:
+                                item.formattedAddress,
+                              latitude:
+                                item.latitude,
+                              longitude:
+                                item.longitude,
+                            });
+
+                            setLocationSource(
+                              'search'
+                            );
+
+                            setLocationSuccessText(
+                              'Search landmark selected ✓'
+                            );
+
+                            setSearchResults(
+                              []
+                            );
+
+                            showToast(
+                              `Selected: ${item.road}`,
+                              'info'
+                            );
+                          }}
+                          className="w-full rounded-lg p-3 text-left hover:bg-slate-50"
+                        >
+
+                          <div className="text-xs font-bold text-slate-900">
+                            {item.road}
+                          </div>
+
+                          <div className="mt-1 text-[11px] text-slate-500">
+                            {
+                              item.formattedAddress
+                            }
+                          </div>
+
+                        </button>
+                      )
+                    )}
+
                   </div>
                 )}
+
               </div>
             )}
 
-            {/* Mode C: Manual Input */}
-            {locationMode === 'manual' && (
-              <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/70 p-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* MANUAL */}
+
+            {locationMode ===
+              'manual' && (
+              <div className="mb-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+
+                <div className="grid gap-3 sm:grid-cols-2">
+
                   <div>
-                    <label className="text-xs font-medium text-slate-300 block mb-1">
-                      Road / Street Name
+                    <label className="text-xs font-bold text-slate-600">
+                      Road / Street
                     </label>
+
                     <input
-                      type="text"
                       value={manualRoad}
-                      onChange={(e) => setManualRoad(e.target.value)}
+                      onChange={(e) =>
+                        setManualRoad(
+                          e.target.value
+                        )
+                      }
                       placeholder="e.g. Ring Road"
-                      className="w-full rounded-lg border border-slate-700 bg-slate-900 p-2 text-xs text-white"
+                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900 outline-none focus:border-blue-400"
                     />
                   </div>
+
                   <div>
-                    <label className="text-xs font-medium text-slate-300 block mb-1">
-                      Nearest Landmark (Optional)
+                    <label className="text-xs font-bold text-slate-600">
+                      Nearest landmark
                     </label>
+
                     <input
-                      type="text"
-                      value={manualLandmark}
-                      onChange={(e) => setManualLandmark(e.target.value)}
-                      placeholder="e.g. Near Metro Station"
-                      className="w-full rounded-lg border border-slate-700 bg-slate-900 p-2 text-xs text-white"
+                      value={
+                        manualLandmark
+                      }
+                      onChange={(e) =>
+                        setManualLandmark(
+                          e.target.value
+                        )
+                      }
+                      placeholder="Optional"
+                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900 outline-none focus:border-blue-400"
                     />
                   </div>
+
                 </div>
-                <div>
-                  <label className="text-xs font-medium text-slate-300 block mb-1">
+
+                <div className="mt-3">
+
+                  <label className="text-xs font-bold text-slate-600">
                     City & State
                   </label>
+
                   <input
-                    type="text"
                     value={manualCity}
-                    onChange={(e) => setManualCity(e.target.value)}
+                    onChange={(e) =>
+                      setManualCity(
+                        e.target.value
+                      )
+                    }
                     placeholder="e.g. Mumbai, Maharashtra"
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 p-2 text-xs text-white"
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900 outline-none focus:border-blue-400"
                   />
+
                 </div>
+
                 <button
                   type="button"
                   onClick={() => {
-                    if (manualRoad.trim()) {
+                    if (
+                      manualRoad.trim()
+                    ) {
                       setHumanLocation({
                         road: manualRoad.trim(),
                         area: manualRoad.trim(),
-                        landmark: manualLandmark.trim() || '',
-                        city: manualCity.split(',')[0]?.trim() || 'City',
-                        state: manualCity.split(',')[1]?.trim() || '',
-                        formattedAddress: `${manualRoad}, ${manualLandmark ? `${manualLandmark}, ` : ''}${manualCity}`,
-                        latitude: humanLocation.latitude || 19.2312,
-                        longitude: humanLocation.longitude || 72.9765,
+                        landmark:
+                          manualLandmark.trim() ||
+                          '',
+                        city:
+                          manualCity
+                            .split(',')[0]
+                            ?.trim() ||
+                          'City',
+                        state:
+                          manualCity
+                            .split(',')[1]
+                            ?.trim() ||
+                          '',
+                        formattedAddress: `${manualRoad}, ${
+                          manualLandmark
+                            ? `${manualLandmark}, `
+                            : ''
+                        }${manualCity}`,
+                        latitude:
+                          humanLocation.latitude ||
+                          19.2312,
+                        longitude:
+                          humanLocation.longitude ||
+                          72.9765,
                       });
-                      setLocationSource('manual');
-                      setLocationSuccessText('Manual location applied ✓');
-                      showToast('Manual address applied.', 'success');
+
+                      setLocationSource(
+                        'manual'
+                      );
+
+                      setLocationSuccessText(
+                        'Manual location applied ✓'
+                      );
+
+                      showToast(
+                        'Manual address applied.',
+                        'success'
+                      );
                     }
                   }}
-                  className="rounded-lg bg-cyan-500/20 border border-cyan-500/40 px-3 py-1.5 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/30"
+                  className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs font-bold text-blue-700 hover:bg-blue-100"
                 >
                   Apply Manual Location
                 </button>
+
               </div>
             )}
 
-            {/* Preview Iframe Permission Guidance Banner */}
+            {/* IFRAME */}
+
             {isIframeBlocked && (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-cyan-500/40 bg-cyan-950/40 p-3.5 text-xs text-cyan-200">
-                <div className="flex items-center space-x-2">
-                  <span className="text-base">📍</span>
+              <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-blue-100 bg-blue-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+
+                <div className="flex gap-3">
+
+                  <MapPin className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
+
                   <div>
-                    <p className="font-semibold text-cyan-300">Browser GPS restricted in preview iframe</p>
-                    <p className="text-[11px] text-cyan-200/80">
-                      We estimated your approximate location via network IP. For meter-precise device GPS, open the app in a dedicated tab.
+                    <p className="text-xs font-bold text-blue-900">
+                      Browser GPS restricted in preview
+                    </p>
+
+                    <p className="mt-1 text-[11px] leading-5 text-blue-700">
+                      Approximate network location is being
+                      used. Open the app directly for device GPS.
                     </p>
                   </div>
+
                 </div>
+
                 <a
-                  href={typeof window !== 'undefined' ? window.location.href : '#'}
+                  href={
+                    typeof window !==
+                    'undefined'
+                      ? window.location.href
+                      : '#'
+                  }
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center space-x-1 rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-cyan-400"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"
                 >
-                  <span>Open in New Tab for Live GPS</span>
+                  Open in new tab
                   <ExternalLink className="h-3.5 w-3.5" />
                 </a>
+
               </div>
             )}
 
-            {/* Error display */}
+            {/* ERROR */}
+
             {locationError && (
-              <div className="rounded-xl border border-rose-500/30 bg-rose-950/40 p-3 text-xs text-rose-300 flex items-center justify-between">
-                <span>{locationError}</span>
+              <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-rose-100 bg-rose-50 p-3 text-xs text-rose-700">
+
+                <span>
+                  {locationError}
+                </span>
+
                 <button
                   type="button"
-                  onClick={() => setLocationMode('search')}
-                  className="rounded bg-rose-900/60 px-2 py-1 text-[11px] text-white hover:bg-rose-800"
+                  onClick={() =>
+                    setLocationMode(
+                      'search'
+                    )
+                  }
+                  className="rounded-lg bg-white px-3 py-1.5 font-bold text-rose-700 shadow-sm"
                 >
-                  Search Landmark Instead
+                  Search instead
                 </button>
+
               </div>
             )}
 
-            {/* Human Location Card */}
-            <HumanLocationCard
-              location={humanLocation}
-              isLoading={locationLoading}
-              badgeText={locationSuccessText}
-              source={locationSource}
-              onChangeClick={() => setLocationMode('search')}
-              onRefreshClick={handleCaptureGps}
-            />
+            {/* LOCATION CARD */}
 
-            <div className="flex items-center justify-between pt-4 border-t border-slate-800">
+            <div className="overflow-hidden rounded-2xl border border-slate-200">
+
+              <HumanLocationCard
+                location={humanLocation}
+                isLoading={
+                  locationLoading
+                }
+                badgeText={
+                  locationSuccessText
+                }
+                source={
+                  locationSource
+                }
+                onChangeClick={() =>
+                  setLocationMode(
+                    'search'
+                  )
+                }
+                onRefreshClick={
+                  handleCaptureGps
+                }
+              />
+
+            </div>
+
+            {/* ACTIONS */}
+
+            <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-5">
+
               <button
                 type="button"
-                onClick={() => setCurrentStep(1)}
-                className="inline-flex items-center space-x-1.5 rounded-xl border border-slate-800 px-4 py-2.5 text-xs font-semibold text-slate-300 hover:bg-slate-800"
+                onClick={() =>
+                  setCurrentStep(1)
+                }
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
                 <ArrowLeft className="h-4 w-4" />
-                <span>Back</span>
+                Back
               </button>
 
               <button
                 type="button"
-                onClick={() => setCurrentStep(3)}
-                className="inline-flex items-center space-x-2 rounded-xl bg-cyan-500 px-5 py-2.5 text-xs font-bold text-slate-950 shadow-lg shadow-cyan-500/20 hover:bg-cyan-400"
+                onClick={() =>
+                  setCurrentStep(3)
+                }
+                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700"
               >
-                <span>Proceed to Description</span>
+                Continue
                 <ArrowRight className="h-4 w-4" />
               </button>
+
             </div>
-          </div>
+
+          </section>
         )}
 
-        {/* STEP 3: SEVERITY & DESCRIPTION */}
+        {/* STEP 3 */}
+
         {currentStep === 3 && (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl backdrop-blur-md space-y-6">
-            <div>
-              <h3 className="text-lg font-bold text-white flex items-center space-x-2">
-                <FileCheck className="h-5 w-5 text-cyan-400" />
-                <span>Step 3: Severity Assessment & Voice Note</span>
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Provide citizen context and traffic hazard impact for municipal dispatch.
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+
+            <div className="mb-6">
+
+              <p className="text-xs font-bold uppercase tracking-wide text-blue-600">
+                Step 3
               </p>
+
+              <h2 className="mt-1 text-xl font-black text-slate-900">
+                Describe the road condition
+              </h2>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Add severity and any useful information for
+                the municipal team.
+              </p>
+
             </div>
 
+            {/* SEVERITY */}
+
             <div>
-              <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider block mb-2">
-                Observed Hazard Severity:
+
+              <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                Observed severity
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+
                 {[
                   {
-                    level: 'Critical' as SeverityLevel,
-                    desc: 'Deep crater (>10cm), rim damage, high accident risk',
-                    color: 'border-rose-500/50 bg-rose-950/30 text-rose-300',
+                    level:
+                      'Critical' as SeverityLevel,
+                    desc:
+                      'Deep crater, rim damage or high accident risk.',
                   },
                   {
-                    level: 'High' as SeverityLevel,
-                    desc: 'Moderate cavity (5-10cm), vehicle swerving observed',
-                    color: 'border-amber-500/50 bg-amber-950/30 text-amber-300',
+                    level:
+                      'High' as SeverityLevel,
+                    desc:
+                      'Moderate cavity or vehicles swerving around it.',
                   },
                   {
-                    level: 'Medium' as SeverityLevel,
-                    desc: 'Surface deterioration, asphalt erosion, slow lane',
-                    color: 'border-cyan-500/50 bg-cyan-950/30 text-cyan-300',
+                    level:
+                      'Medium' as SeverityLevel,
+                    desc:
+                      'Surface deterioration or asphalt erosion.',
                   },
-                ].map((s) => (
-                  <button
-                    key={s.level}
-                    type="button"
-                    onClick={() => setSelectedSeverity(s.level)}
-                    className={`rounded-xl border p-3 text-left transition-all ${
-                      selectedSeverity === s.level
-                        ? `${s.color} ring-2 ring-cyan-400 shadow-md`
-                        : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:bg-slate-800'
-                    }`}
-                  >
-                    <div className="text-sm font-bold text-white">{s.level}</div>
-                    <div className="text-[11px] mt-1 text-slate-400">{s.desc}</div>
-                  </button>
-                ))}
+                ].map((item) => {
+
+                  const selected =
+                    selectedSeverity ===
+                    item.level;
+
+                  return (
+                    <button
+                      key={
+                        item.level
+                      }
+                      type="button"
+                      onClick={() =>
+                        setSelectedSeverity(
+                          item.level
+                        )
+                      }
+                      className={`rounded-2xl border p-4 text-left transition ${
+                        selected
+                          ? 'border-blue-300 bg-blue-50 ring-2 ring-blue-100'
+                          : 'border-slate-200 bg-white hover:bg-slate-50'
+                      }`}
+                    >
+
+                      <div className="flex items-center justify-between">
+
+                        <span className="text-sm font-black text-slate-900">
+                          {item.level}
+                        </span>
+
+                        {selected && (
+                          <CheckCircle2 className="h-4 w-4 text-blue-600" />
+                        )}
+
+                      </div>
+
+                      <p className="mt-2 text-[11px] leading-5 text-slate-500">
+                        {item.desc}
+                      </p>
+
+                    </button>
+                  );
+                })}
+
               </div>
             </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                  Citizen Defect Description
+            {/* DESCRIPTION */}
+
+            <div className="mt-6">
+
+              <div className="mb-2 flex items-center justify-between gap-3">
+
+                <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Citizen description
                 </label>
+
                 <button
                   type="button"
-                  onClick={toggleVoiceRecording}
-                  className={`inline-flex items-center space-x-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition-all ${
+                  onClick={
+                    toggleVoiceRecording
+                  }
+                  className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold ${
                     isRecordingVoice
-                      ? 'border border-rose-500 bg-rose-600 text-white animate-pulse'
-                      : 'border border-cyan-500/40 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20'
+                      ? 'bg-rose-100 text-rose-700'
+                      : 'border border-blue-100 bg-blue-50 text-blue-700'
                   }`}
                 >
-                  {isRecordingVoice ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
-                  <span>{isRecordingVoice ? `Recording (${voiceSeconds}s)...` : 'Record Voice Note'}</span>
+                  {isRecordingVoice ? (
+                    <MicOff className="h-3.5 w-3.5" />
+                  ) : (
+                    <Mic className="h-3.5 w-3.5" />
+                  )}
+
+                  {isRecordingVoice
+                    ? `Recording (${voiceSeconds}s)...`
+                    : 'Record voice note'}
                 </button>
+
               </div>
 
               <textarea
-                rows={4}
+                rows={6}
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Describe road defect location, lane impact, and hazard..."
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-xs text-slate-100 placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
+                onChange={(e) =>
+                  setDescription(
+                    e.target.value
+                  )
+                }
+                placeholder="Describe the road defect, lane impact and safety concern..."
+                className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
               />
+
             </div>
 
-            <div className="flex items-center justify-between pt-4 border-t border-slate-800">
+            {/* ACTIONS */}
+
+            <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-5">
+
               <button
                 type="button"
-                onClick={() => setCurrentStep(2)}
-                className="inline-flex items-center space-x-1.5 rounded-xl border border-slate-800 px-4 py-2.5 text-xs font-semibold text-slate-300 hover:bg-slate-800"
+                onClick={() =>
+                  setCurrentStep(2)
+                }
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
                 <ArrowLeft className="h-4 w-4" />
-                <span>Back</span>
+                Back
               </button>
 
               <button
                 type="button"
                 onClick={() => {
                   setCurrentStep(4);
-                  runAiAnalysisAndSubmit(false);
+                  runAiAnalysisAndSubmit(
+                    false
+                  );
                 }}
-                className="inline-flex items-center space-x-2 rounded-xl bg-cyan-500 px-6 py-2.5 text-xs font-bold text-slate-950 shadow-lg shadow-cyan-500/20 hover:bg-cyan-400"
+                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-blue-100 hover:bg-blue-700"
               >
                 <Cpu className="h-4 w-4" />
-                <span>Trigger AI Damage Scanning & Submit</span>
+                Analyze & Submit
               </button>
+
             </div>
-          </div>
+
+          </section>
         )}
 
-        {/* STEP 4: AI SCANNING & CONFIRMATION */}
+        {/* STEP 4 */}
+
         {currentStep === 4 && (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6 shadow-2xl backdrop-blur-md space-y-6">
-            {/* Duplicate Notice Modal if triggered */}
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+
+            {/* DUPLICATE */}
+
             {duplicateWarning?.hasDuplicate && (
-              <div className="rounded-2xl border border-amber-500/40 bg-amber-950/30 p-5 space-y-3">
-                <div className="flex items-start space-x-3">
-                  <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+              <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-5">
+
+                <div className="flex gap-3">
+
+                  <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" />
+
                   <div>
-                    <h4 className="text-sm font-bold text-white">Similar Complaint Already Exists Nearby</h4>
-                    <p className="text-xs text-slate-300 mt-1">
-                      A defect report was already filed approximately {duplicateWarning.distance} meters away at this location (
-                      <span className="font-mono text-amber-300 font-bold">
-                        {duplicateWarning.existing?.id}
-                      </span>
-                      ).
+
+                    <h3 className="text-sm font-black text-slate-900">
+                      Similar complaint already exists
+                    </h3>
+
+                    <p className="mt-1 text-xs leading-5 text-slate-600">
+                      A defect report was already filed
+                      approximately{' '}
+                      <strong>
+                        {
+                          duplicateWarning.distance
+                        }
+                      </strong>{' '}
+                      meters away.
                     </p>
+
                   </div>
+
                 </div>
 
-                <div className="flex flex-wrap gap-2 pt-2">
-                  {duplicateWarning.existing && onSelectComplaintForVerification && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onSelectComplaintForVerification(duplicateWarning.existing!);
-                        onNavigate('map');
-                      }}
-                      className="rounded-xl border border-cyan-500/40 bg-cyan-500/20 px-4 py-2 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/30"
-                    >
-                      View Existing Complaint on Map
-                    </button>
-                  )}
+                <div className="mt-4 flex flex-wrap gap-2">
+
+                  {duplicateWarning.existing &&
+                    onSelectComplaintForVerification && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSelectComplaintForVerification(
+                            duplicateWarning.existing!
+                          );
+
+                          onNavigate(
+                            'map'
+                          );
+                        }}
+                        className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                      >
+                        View Existing Complaint
+                      </button>
+                    )}
+
                   <button
                     type="button"
-                    onClick={() => runAiAnalysisAndSubmit(true)}
-                    className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400"
+                    onClick={() =>
+                      runAiAnalysisAndSubmit(
+                        true
+                      )
+                    }
+                    className="rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-bold text-white hover:bg-amber-600"
                   >
-                    Submit Anyway (New Defect)
+                    Submit as New Defect
                   </button>
+
                 </div>
               </div>
             )}
 
-            <div className="text-center max-w-xl mx-auto">
-              <span className="inline-flex items-center space-x-1.5 rounded-full border border-cyan-500/40 bg-cyan-950/60 px-3 py-1 text-xs font-bold text-cyan-300">
-                <Cpu className="h-3.5 w-3.5" />
-                <span>NEURAL ROAD INTEGRITY ENGINE</span>
-              </span>
-              <h3 className="mt-2 text-2xl font-black text-white">
+            {/* AI HEADER */}
+
+            <div className="text-center">
+
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                <Cpu className="h-6 w-6" />
+              </div>
+
+              <p className="mt-4 text-xs font-bold uppercase tracking-wide text-blue-600">
+                AI road analysis
+              </p>
+
+              <h2 className="mt-1 text-2xl font-black text-slate-900">
                 {isAiAnalyzing
-                  ? 'Analyzing Pothole Telemetry...'
+                  ? 'Analyzing road image...'
                   : aiAnalysisComplete
-                  ? 'Complaint Registered & Stored'
-                  : 'Ready to Process'}
-              </h3>
+                  ? 'Complaint registered'
+                  : 'Ready to process'}
+              </h2>
+
+              <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">
+                {isAiAnalyzing
+                  ? 'The image is being analyzed for defect type, severity and hazard information.'
+                  : aiAnalysisComplete
+                  ? 'Your report has been recorded successfully.'
+                  : 'Your submitted evidence will be processed here.'}
+              </p>
+
             </div>
 
-            {/* Visual scanner */}
-            <div className="relative mx-auto h-64 w-full max-w-lg rounded-2xl border border-cyan-500/40 bg-slate-950 overflow-hidden shadow-inner flex items-center justify-center">
+            {/* SCANNER */}
+
+            <div className="relative mx-auto mt-7 max-w-xl overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+
               <img
                 src={photoUrl}
                 alt="Scanning target"
-                className="absolute inset-0 h-full w-full object-cover opacity-60"
+                className="h-72 w-full object-cover"
                 referrerPolicy="no-referrer"
               />
 
+              <div className="absolute inset-0 bg-slate-950/35" />
+
               {isAiAnalyzing && (
-                <div className="absolute inset-x-0 h-1 bg-cyan-400 shadow-[0_0_20px_#06B6D4] animate-bounce" />
+                <div className="absolute inset-x-0 top-1/2 h-1 animate-pulse bg-blue-400 shadow-[0_0_20px_#3B82F6]" />
               )}
 
-              <div className="relative z-10 flex flex-col items-center justify-center p-4">
-                <div className="h-32 w-32 rounded-full border-2 border-dashed border-cyan-400/70 flex items-center justify-center">
-                  <div className="h-24 w-24 rounded-full border border-emerald-400/50 flex items-center justify-center">
-                    <span className="font-mono text-sm font-bold text-cyan-300">
-                      {isAiAnalyzing ? 'ANALYZING' : `${aiDetails.hazardScore || 85}/100`}
+              <div className="absolute inset-0 flex items-center justify-center">
+
+                <div className="flex h-36 w-36 items-center justify-center rounded-full border-2 border-white/70 bg-white/10 backdrop-blur-sm">
+
+                  <div className="flex h-24 w-24 items-center justify-center rounded-full border border-white/60 bg-slate-950/50">
+
+                    <span className="text-center text-xs font-black text-white">
+                      {isAiAnalyzing
+                        ? 'ANALYZING'
+                        : `${aiDetails.hazardScore || 85}/100`}
                     </span>
+
                   </div>
+
                 </div>
+
               </div>
+
             </div>
 
-            {/* Real AI Result Card */}
-            {aiAnalysisComplete && generatedComplaint && (
-              <div className="rounded-2xl border border-cyan-500/30 bg-slate-950 p-5 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-800 pb-3">
-                  <div>
-                    <span className="text-[10px] text-slate-500 font-mono">OFFICIAL COMPLAINT LEDGER ID</span>
-                    <p className="font-mono text-lg font-bold text-cyan-400">
-                      {generatedComplaint.id}
-                    </p>
+            {/* RESULT */}
+
+            {aiAnalysisComplete &&
+              generatedComplaint && (
+                <div className="mt-6 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-5">
+
+                  <div className="flex flex-col gap-3 border-b border-emerald-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+
+                    <div>
+
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                        Complaint ID
+                      </p>
+
+                      <p className="mt-1 font-mono text-lg font-black text-slate-900">
+                        {
+                          generatedComplaint.id
+                        }
+                      </p>
+
+                    </div>
+
+                    <span className="inline-flex items-center gap-1.5 self-start rounded-full bg-white px-3 py-1.5 text-xs font-bold text-emerald-700 shadow-sm">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Report saved
+                    </span>
+
                   </div>
-                  <span className="inline-flex items-center space-x-1 rounded-full border border-emerald-500/40 bg-emerald-950/50 px-3 py-1 text-xs font-semibold text-emerald-400">
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    <span>Saved to Firestore Database</span>
-                  </span>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-3">
+
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                        Severity
+                      </p>
+
+                      <p className="mt-1 text-sm font-black text-slate-900">
+                        {
+                          generatedComplaint.severity
+                        }
+                      </p>
+
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-3">
+
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                        Hazard score
+                      </p>
+
+                      <p className="mt-1 text-sm font-black text-slate-900">
+                        {
+                          generatedComplaint.hazardScore
+                        }{' '}
+                        / 100
+                      </p>
+
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-3">
+
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                        Assigned wing
+                      </p>
+
+                      <p className="mt-1 truncate text-sm font-black text-slate-900">
+                        {
+                          generatedComplaint.department
+                        }
+                      </p>
+
+                    </div>
+
+                  </div>
+
+                  {aiDetails.aiSummary && (
+                    <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 p-4">
+
+                      <p className="text-xs font-bold text-blue-700">
+                        AI diagnostic summary
+                      </p>
+
+                      <p className="mt-1 text-xs leading-5 text-slate-600">
+                        {
+                          aiDetails.aiSummary
+                        }
+                      </p>
+
+                    </div>
+                  )}
+
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
+
+                    <button
+                      onClick={() =>
+                        onNavigate(
+                          'my-complaints'
+                        )
+                      }
+                      className="rounded-xl bg-blue-600 py-3 text-sm font-bold text-white hover:bg-blue-700"
+                    >
+                      View in My Reports
+                    </button>
+
+                    <button
+                      onClick={() =>
+                        onNavigate('map')
+                      }
+                      className="rounded-xl border border-slate-200 bg-white py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                    >
+                      View on Live Map
+                    </button>
+
+                  </div>
+
                 </div>
+              )}
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                  <div className="rounded-xl bg-slate-900/60 p-3 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Severity</span>
-                    <p className="font-bold text-rose-400 font-mono mt-0.5">
-                      {generatedComplaint.severity}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-slate-900/60 p-3 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Hazard Score</span>
-                    <p className="font-bold text-amber-400 font-mono mt-0.5">
-                      {generatedComplaint.hazardScore} / 100
-                    </p>
-                  </div>
-                  <div className="col-span-2 rounded-xl bg-slate-900/60 p-3 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Assigned Wing</span>
-                    <p className="font-bold text-cyan-300 truncate mt-0.5">
-                      {generatedComplaint.department}
-                    </p>
-                  </div>
-                </div>
+            {/* BOTTOM */}
 
-                {aiDetails.aiSummary && (
-                  <div className="rounded-xl bg-cyan-950/20 border border-cyan-500/20 p-3 text-xs text-slate-300">
-                    <strong className="text-cyan-400 block mb-1">AI Diagnostic Summary:</strong>
-                    <span>{aiDetails.aiSummary}</span>
-                  </div>
-                )}
+            {!aiAnalysisComplete &&
+              !duplicateWarning?.hasDuplicate && (
+                <div className="mt-6 flex justify-start border-t border-slate-100 pt-5">
 
-                <div className="pt-2 flex flex-wrap gap-3">
                   <button
-                    onClick={() => onNavigate('my-complaints')}
-                    className="flex-1 rounded-xl bg-cyan-500 py-2.5 text-xs font-bold text-slate-950 shadow-md hover:bg-cyan-400 text-center"
+                    type="button"
+                    onClick={() =>
+                      setCurrentStep(3)
+                    }
+                    disabled={
+                      isAiAnalyzing
+                    }
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                   >
-                    View in My Reports
+                    <ArrowLeft className="h-4 w-4" />
+                    Back
                   </button>
-                  <button
-                    onClick={() => onNavigate('map')}
-                    className="flex-1 rounded-xl border border-cyan-500/40 bg-cyan-500/10 py-2.5 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20 text-center"
-                  >
-                    View Live on Map
-                  </button>
+
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+
+          </section>
         )}
+
       </div>
     </div>
   );
