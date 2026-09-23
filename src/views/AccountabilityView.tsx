@@ -458,4 +458,86 @@ export const AccountabilityView: React.FC<
                             <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
 
                             <div className="truncate font-mono text-[10px] text-slate-400">
-                              SHA-256: {
+                              SHA-256: {c.verification.cryptographicHash}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex shrink-0 items-center gap-3">
+                        <span
+                          className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase ${
+                            c.status === 'verified'
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                              : c.status === 'suspicious'
+                              ? 'border-rose-200 bg-rose-50 text-rose-700'
+                              : 'border-blue-200 bg-blue-50 text-blue-700'
+                          }`}
+                        >
+                          {c.status.replaceAll('_', ' ')}
+                        </span>
+
+                        <span className="whitespace-nowrap text-[11px] text-slate-400">
+                          {new Date(
+                            c.createdAt
+                          ).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* BOTTOM INFO */}
+        <section className="grid gap-4 md:grid-cols-2">
+
+          <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-white p-2.5">
+                <ShieldCheck className="h-5 w-5 text-blue-600" />
+              </div>
+
+              <div>
+                <h3 className="text-sm font-bold text-blue-900">
+                  Verification-first accountability
+                </h3>
+
+                <p className="mt-1 text-xs leading-5 text-blue-700/80">
+                  Repair records are connected to verification
+                  evidence before being reflected in the public
+                  repair ledger.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-amber-100 bg-amber-50 p-5">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-white p-2.5">
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+              </div>
+
+              <div>
+                <h3 className="text-sm font-bold text-amber-900">
+                  Flagged cases
+                </h3>
+
+                <p className="mt-1 text-xs leading-5 text-amber-700/80">
+                  {suspiciousComplaints.length} complaint
+                  {suspiciousComplaints.length === 1
+                    ? ''
+                    : 's'} currently require additional review.
+                </p>
+              </div>
+            </div>
+          </div>
+
+        </section>
+
+      </div>
+    </div>
+  );
+};
