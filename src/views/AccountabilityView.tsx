@@ -5,6 +5,9 @@ import {
   CheckCircle2,
   ExternalLink,
   TrendingUp,
+  AlertTriangle,
+  Clock3,
+  IndianRupee,
 } from 'lucide-react';
 
 import {
@@ -42,9 +45,9 @@ const WARD_SLA_DATA = [
   { ward: 'Highway NH-48', sla: 93, avgHours: 38 },
 ];
 
-export const AccountabilityView: React.FC<AccountabilityViewProps> = ({
-  onNavigate,
-}) => {
+export const AccountabilityView: React.FC<
+  AccountabilityViewProps
+> = ({ onNavigate }) => {
   const { stats, complaints } = useComplaints();
 
   const verifiedComplaints = complaints.filter(
@@ -81,49 +84,66 @@ export const AccountabilityView: React.FC<AccountabilityViewProps> = ({
       : 94;
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50 px-4 py-6 text-slate-900 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl space-y-6">
 
-        {/* Header */}
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-blue-600">
-                <ShieldCheck className="h-4 w-4" />
-                Public Transparency
+        {/* HEADER */}
+        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="relative p-6 sm:p-8">
+            <div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-blue-50 blur-3xl" />
+
+            <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+
+              <div className="max-w-2xl">
+                <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-blue-700">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Public Transparency
+                </div>
+
+                <h1 className="mt-4 text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">
+                  Accountability Dashboard
+                </h1>
+
+                <p className="mt-3 text-sm leading-6 text-slate-500 sm:text-base">
+                  Explore complaint activity, repair progress,
+                  verification records and public infrastructure
+                  metrics.
+                </p>
               </div>
 
-              <h1 className="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">
-                Accountability Dashboard
-              </h1>
+              <div className="relative min-w-[210px] rounded-2xl border border-blue-100 bg-blue-50 p-5">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-blue-600">
+                  <IndianRupee className="h-4 w-4" />
+                  Funds Protected
+                </div>
 
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                Explore complaint activity, repair progress,
-                verification records and public infrastructure metrics.
-              </p>
-            </div>
+                <div className="mt-2 text-2xl font-black text-blue-700">
+                  ₹{totalFundsSaved.toLocaleString('en-IN')}
+                </div>
 
-            <div className="rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-500">
-                Funds Protected
-              </span>
-
-              <div className="mt-1 text-2xl font-black text-blue-700">
-                ₹{totalFundsSaved.toLocaleString('en-IN')}
+                <p className="mt-1 text-xs text-blue-600/70">
+                  Based on current verification records
+                </p>
               </div>
             </div>
           </div>
         </section>
 
-        {/* Metrics */}
-        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* KEY METRICS */}
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
-              Taxpayer Savings
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                Taxpayer Savings
+              </span>
 
-            <div className="mt-2 text-2xl font-black text-slate-900">
+              <div className="rounded-xl bg-emerald-50 p-2">
+                <IndianRupee className="h-4 w-4 text-emerald-600" />
+              </div>
+            </div>
+
+            <div className="mt-4 text-2xl font-black text-slate-900">
               ₹{(totalFundsSaved / 100000).toFixed(1)}L
             </div>
 
@@ -133,11 +153,17 @@ export const AccountabilityView: React.FC<AccountabilityViewProps> = ({
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
-              Resolution Speed
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                Resolution Speed
+              </span>
 
-            <div className="mt-2 text-2xl font-black text-blue-600">
+              <div className="rounded-xl bg-blue-50 p-2">
+                <Clock3 className="h-4 w-4 text-blue-600" />
+              </div>
+            </div>
+
+            <div className="mt-4 text-2xl font-black text-blue-600">
               38.4 hrs
             </div>
 
@@ -147,11 +173,17 @@ export const AccountabilityView: React.FC<AccountabilityViewProps> = ({
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
-              SLA Compliance
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                SLA Compliance
+              </span>
 
-            <div className="mt-2 text-2xl font-black text-amber-600">
+              <div className="rounded-xl bg-amber-50 p-2">
+                <TrendingUp className="h-4 w-4 text-amber-600" />
+              </div>
+            </div>
+
+            <div className="mt-4 text-2xl font-black text-amber-600">
               {resolvedWithinSLA}%
             </div>
 
@@ -161,11 +193,17 @@ export const AccountabilityView: React.FC<AccountabilityViewProps> = ({
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
-              AI Verification
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                AI Verification
+              </span>
 
-            <div className="mt-2 text-2xl font-black text-emerald-600">
+              <div className="rounded-xl bg-violet-50 p-2">
+                <CheckCircle2 className="h-4 w-4 text-violet-600" />
+              </div>
+            </div>
+
+            <div className="mt-4 text-2xl font-black text-emerald-600">
               {stats.avgConfidence}%
             </div>
 
@@ -175,32 +213,39 @@ export const AccountabilityView: React.FC<AccountabilityViewProps> = ({
           </div>
         </section>
 
-        {/* Charts */}
-        <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* CHARTS */}
+        <section className="grid gap-6 lg:grid-cols-2">
 
+          {/* REPORTS VS VERIFIED */}
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="mb-5 flex items-start justify-between">
+
+            <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2">
-                  <BarChart3 className="h-4 w-4 text-blue-600" />
+                  <div className="rounded-lg bg-blue-50 p-2">
+                    <BarChart3 className="h-4 w-4 text-blue-600" />
+                  </div>
 
                   <h2 className="text-sm font-bold text-slate-900">
                     Reports vs Verified Repairs
                   </h2>
                 </div>
 
-                <p className="mt-1 text-xs text-slate-500">
-                  Monthly complaint and verification activity
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  Monthly complaint and verification activity.
                 </p>
               </div>
 
-              <span className="rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-600">
+              <span className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[10px] font-bold text-slate-500">
                 FY 2025–26
               </span>
             </div>
 
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="mt-5 h-72 w-full">
+              <ResponsiveContainer
+                width="100%"
+                height="100%"
+              >
                 <BarChart
                   data={MONTHLY_DATA}
                   margin={{
@@ -260,29 +305,36 @@ export const AccountabilityView: React.FC<AccountabilityViewProps> = ({
             </div>
           </div>
 
+          {/* SLA */}
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="mb-5 flex items-start justify-between">
+
+            <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4 text-emerald-600" />
+                  <div className="rounded-lg bg-emerald-50 p-2">
+                    <TrendingUp className="h-4 w-4 text-emerald-600" />
+                  </div>
 
                   <h2 className="text-sm font-bold text-slate-900">
                     Ward SLA Compliance
                   </h2>
                 </div>
 
-                <p className="mt-1 text-xs text-slate-500">
-                  Percentage of repairs completed within SLA
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  Percentage of repairs completed within SLA.
                 </p>
               </div>
 
-              <span className="rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-600">
+              <span className="rounded-lg bg-emerald-50 px-2.5 py-1.5 text-[10px] font-bold text-emerald-600">
                 SLA
               </span>
             </div>
 
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="mt-5 h-72 w-full">
+              <ResponsiveContainer
+                width="100%"
+                height="100%"
+              >
                 <BarChart
                   data={WARD_SLA_DATA}
                   layout="vertical"
@@ -334,86 +386,76 @@ export const AccountabilityView: React.FC<AccountabilityViewProps> = ({
           </div>
         </section>
 
-        {/* Public Ledger */}
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        {/* PUBLIC LEDGER */}
+        <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
 
-          <div className="flex flex-col gap-3 border-b border-slate-100 pb-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-4 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+
             <div>
               <div className="flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5 text-emerald-600" />
+                <div className="rounded-xl bg-emerald-50 p-2.5">
+                  <ShieldCheck className="h-5 w-5 text-emerald-600" />
+                </div>
 
                 <h2 className="text-base font-black text-slate-900">
                   Public Repair Ledger
                 </h2>
               </div>
 
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-2 text-xs leading-5 text-slate-500">
                 Verification records for reported infrastructure repairs.
               </p>
             </div>
 
             <button
               onClick={() => onNavigate('verification')}
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
             >
               Verify Records
               <ExternalLink className="h-3.5 w-3.5" />
             </button>
           </div>
 
-          <div className="mt-5 space-y-3">
-            {complaints.map((c) => (
-              <div
-                key={c.id}
-                className="flex flex-col gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-xs font-bold text-blue-600">
-                      {c.id}
-                    </span>
+          <div className="p-5 sm:p-6">
+            {complaints.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-10 text-center">
+                <BarChart3 className="mx-auto h-7 w-7 text-slate-300" />
 
-                    <span className="text-sm font-bold text-slate-800">
-                      {c.location.road}
-                    </span>
+                <p className="mt-3 text-sm font-semibold text-slate-500">
+                  No public repair records yet.
+                </p>
 
-                    <span className="text-xs text-slate-400">
-                      {c.location.city}
-                    </span>
-                  </div>
-
-                  {c.verification && (
-                    <div className="mt-1 truncate font-mono text-[10px] text-slate-400">
-                      Hash: {c.verification.cryptographicHash}
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase ${
-                      c.status === 'verified'
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                        : c.status === 'suspicious'
-                        ? 'border-rose-200 bg-rose-50 text-rose-700'
-                        : 'border-blue-200 bg-blue-50 text-blue-700'
-                    }`}
-                  >
-                    {c.status.replace('_', ' ')}
-                  </span>
-
-                  <span className="whitespace-nowrap text-[11px] text-slate-400">
-                    {new Date(
-                      c.createdAt
-                    ).toLocaleDateString()}
-                  </span>
-                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  Verified complaint activity will appear here.
+                </p>
               </div>
-            ))}
-          </div>
-        </section>
+            ) : (
+              <div className="space-y-3">
+                {complaints.map((c) => (
+                  <div
+                    key={c.id}
+                    className="rounded-2xl border border-slate-100 bg-slate-50 p-4 transition hover:border-slate-200 hover:bg-white"
+                  >
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 
-      </div>
-    </div>
-  );
-};
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-lg bg-blue-50 px-2.5 py-1 font-mono text-xs font-bold text-blue-600">
+                            {c.id}
+                          </span>
+
+                          <span className="text-sm font-bold text-slate-800">
+                            {c.location.road}
+                          </span>
+
+                          <span className="text-xs text-slate-400">
+                            {c.location.city}
+                          </span>
+                        </div>
+
+                        {c.verification?.cryptographicHash && (
+                          <div className="mt-2 flex items-center gap-2">
+                            <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+
+                            <div className="truncate font-mono text-[10px] text-slate-400">
+                              SHA-256: {
