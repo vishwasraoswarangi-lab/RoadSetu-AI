@@ -1,16 +1,13 @@
 import React, { useState } from 'react';
 import {
   Compass,
-  Filter,
   MapPin,
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  ShieldAlert,
   ExternalLink,
   ChevronRight,
-  Layers,
   ArrowUpRight,
+  ShieldCheck,
+  AlertTriangle,
+  Clock3,
 } from 'lucide-react';
 import { useComplaints } from '../context/ComplaintsContext';
 import { Complaint, ComplaintStatus } from '../types';
@@ -27,248 +24,323 @@ export const LiveMapView: React.FC<LiveMapViewProps> = ({
   onSelectComplaintForVerification,
 }) => {
   const { complaints } = useComplaints();
-  const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(
-    complaints[0] || null
-  );
+
+  const [selectedComplaint, setSelectedComplaint] =
+    useState<Complaint | null>(complaints[0] || null);
 
   const getStatusBadge = (status: ComplaintStatus) => {
     switch (status) {
       case 'verified':
         return {
           label: 'Verified',
-          bg: 'bg-emerald-950/80',
-          text: 'text-emerald-400',
-          border: 'border-emerald-500/40',
+          icon: ShieldCheck,
+          className:
+            'bg-emerald-50 text-emerald-700 border-emerald-200',
         };
+
       case 'suspicious':
         return {
-          label: 'Suspicious / Alert',
-          bg: 'bg-rose-950/80',
-          text: 'text-rose-400',
-          border: 'border-rose-500/40',
+          label: 'Needs Review',
+          icon: AlertTriangle,
+          className:
+            'bg-rose-50 text-rose-700 border-rose-200',
         };
+
       case 'repair_in_progress':
       case 'repair_claimed':
         return {
           label: 'Under Repair',
-          bg: 'bg-amber-950/80',
-          text: 'text-amber-400',
-          border: 'border-amber-500/40',
+          icon: Clock3,
+          className:
+            'bg-amber-50 text-amber-700 border-amber-200',
         };
+
       default:
         return {
           label: 'Unresolved',
-          bg: 'bg-rose-950/60',
-          text: 'text-rose-300',
-          border: 'border-rose-500/30',
+          icon: Clock3,
+          className:
+            'bg-blue-50 text-blue-700 border-blue-200',
         };
     }
   };
 
   return (
-    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
-      {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <div>
-          <div className="flex items-center space-x-2">
-            <span className="flex h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
-            <span className="text-xs font-bold uppercase tracking-widest text-cyan-400">
-              Real-Time Civic Telemetry
-            </span>
+    <div className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl space-y-6">
+
+        {/* Header */}
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-blue-600">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />
+                Live Infrastructure
+              </div>
+
+              <h1 className="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">
+                Live City Map
+              </h1>
+
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+                Explore reported road defects, inspect their locations,
+                and view real-time complaint and verification information.
+              </p>
+            </div>
+
+            <button
+              onClick={() => onNavigate('report')}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700"
+            >
+              Report New Defect
+              <ArrowUpRight className="h-4 w-4" />
+            </button>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white mt-1">
-            Live City Infrastructure Map
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-            Real geographic coordinates, OpenStreetMap raster layers, and verified civic defect ledgers worldwide.
-          </p>
-        </div>
+        </section>
 
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={() => onNavigate('report')}
-            className="flex items-center space-x-2 rounded-xl bg-cyan-500 px-4 py-2 text-xs font-bold text-slate-950 shadow-lg shadow-cyan-500/20 hover:bg-cyan-400 transition-colors"
-          >
-            <span>Report New Defect</span>
-            <ArrowUpRight className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
+        {/* Map */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
 
-      {/* Main Map + Detail Split Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Real Interactive Map Component (8 cols on lg) */}
-        <div className="lg:col-span-8 h-[600px] sm:h-[680px] w-full">
-          <RealLeafletMap
-            complaints={complaints}
-            selectedComplaintId={selectedComplaint?.id}
-            onSelectComplaint={(c) => setSelectedComplaint(c)}
-            className="h-full shadow-2xl"
-          />
-        </div>
-
-        {/* Selected Complaint Details / Live Feed (4 cols on lg) */}
-        <div className="lg:col-span-4 space-y-4">
-          {selectedComplaint ? (
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 backdrop-blur-xl shadow-xl">
-              <div className="flex items-start justify-between">
-                <div>
-                  <span className="text-[10px] font-mono text-cyan-400 block font-bold">
-                    {selectedComplaint.id}
-                  </span>
-                  <h3 className="text-base font-bold text-white mt-1 leading-snug">
-                    {selectedComplaint.location.road}
-                  </h3>
-                </div>
-                {(() => {
-                  const badge = getStatusBadge(selectedComplaint.status);
-                  return (
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${badge.bg} ${badge.text} ${badge.border}`}
-                    >
-                      {badge.label}
-                    </span>
-                  );
-                })()}
+          <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm lg:col-span-8">
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900">
+                  Road Defect Map
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {complaints.length} reported incidents
+                </p>
               </div>
 
-              {/* Defect Image Preview */}
-              <div className="mt-4 overflow-hidden rounded-xl border border-slate-800 bg-slate-950 aspect-video relative group">
-                <img
-                  src={selectedComplaint.beforeImage}
-                  alt={selectedComplaint.description}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                />
-                <div className="absolute bottom-2 left-2 rounded-lg bg-black/70 px-2 py-0.5 text-[10px] font-mono text-slate-300 backdrop-blur-sm">
-                  Defect Image Captured
-                </div>
+              <div className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700">
+                Live
               </div>
+            </div>
 
-              {/* Defect Details */}
-              <div className="mt-4 space-y-2.5 text-xs">
-                <div className="flex items-start space-x-2 text-slate-300">
-                  <MapPin className="h-4 w-4 text-cyan-400 shrink-0 mt-0.5" />
+            <div className="h-[560px] sm:h-[650px]">
+              <RealLeafletMap
+                complaints={complaints}
+                selectedComplaintId={selectedComplaint?.id}
+                onSelectComplaint={(c) => setSelectedComplaint(c)}
+                className="h-full"
+              />
+            </div>
+          </section>
+
+          {/* Details */}
+          <div className="space-y-4 lg:col-span-4">
+
+            {selectedComplaint ? (
+              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+
+                <div className="flex items-start justify-between gap-3">
                   <div>
-                    <span className="font-semibold text-white block">
-                      {selectedComplaint.location.area || selectedComplaint.location.city}
+                    <span className="font-mono text-xs font-bold text-blue-600">
+                      {selectedComplaint.id}
                     </span>
-                    <span className="text-slate-400 text-[11px] block mt-0.5">
-                      {selectedComplaint.location.formattedAddress}
-                    </span>
-                    <span className="text-[10px] font-mono text-slate-500 block mt-0.5">
-                      Coordinates: {selectedComplaint.location.latitude.toFixed(5)},{' '}
-                      {selectedComplaint.location.longitude.toFixed(5)}
-                    </span>
+
+                    <h3 className="mt-1 text-lg font-black text-slate-900">
+                      {selectedComplaint.location.road}
+                    </h3>
+                  </div>
+
+                  {(() => {
+                    const badge = getStatusBadge(
+                      selectedComplaint.status
+                    );
+                    const Icon = badge.icon;
+
+                    return (
+                      <span
+                        className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase ${badge.className}`}
+                      >
+                        <Icon className="h-3 w-3" />
+                        {badge.label}
+                      </span>
+                    );
+                  })()}
+                </div>
+
+                {/* Image */}
+                <div className="mt-5 aspect-video overflow-hidden rounded-2xl bg-slate-100">
+                  <img
+                    src={selectedComplaint.beforeImage}
+                    alt={selectedComplaint.description}
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+
+                {/* Location */}
+                <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+                  <div className="flex gap-3">
+                    <MapPin className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
+
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">
+                        {selectedComplaint.location.area ||
+                          selectedComplaint.location.city}
+                      </p>
+
+                      <p className="mt-1 text-xs leading-5 text-slate-500">
+                        {selectedComplaint.location.formattedAddress}
+                      </p>
+
+                      <p className="mt-2 font-mono text-[10px] text-slate-400">
+                        {selectedComplaint.location.latitude.toFixed(5)},{' '}
+                        {selectedComplaint.location.longitude.toFixed(5)}
+                      </p>
+                    </div>
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-3">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-[11px] text-slate-400 font-medium">
+                {/* AI score */}
+                <div className="mt-4 rounded-2xl border border-slate-200 p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-600">
                       AI Hazard Assessment
                     </span>
-                    <span className="font-bold text-amber-400">
+
+                    <span className="text-sm font-black text-blue-600">
                       {selectedComplaint.hazardScore}/100
                     </span>
                   </div>
-                  <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
                     <div
-                      className="h-full bg-gradient-to-r from-amber-500 to-rose-500 rounded-full"
-                      style={{ width: `${selectedComplaint.hazardScore}%` }}
+                      className="h-full rounded-full bg-blue-600"
+                      style={{
+                        width: `${selectedComplaint.hazardScore}%`,
+                      }}
                     />
                   </div>
-                  <div className="mt-2 flex items-center justify-between text-[11px]">
-                    <span className="text-slate-400">Severity Level:</span>
-                    <span className="font-semibold text-white">
-                      {selectedComplaint.severity}
+
+                  <div className="mt-3 flex justify-between text-xs">
+                    <span className="text-slate-500">
+                      Severity
                     </span>
+
+                    <strong className="text-slate-800">
+                      {selectedComplaint.severity}
+                    </strong>
                   </div>
+
                   {selectedComplaint.confidence && (
-                    <div className="mt-1 flex items-center justify-between text-[11px]">
-                      <span className="text-slate-400">Vision Confidence:</span>
-                      <span className="font-semibold text-cyan-400">
-                        {selectedComplaint.confidence}%
+                    <div className="mt-2 flex justify-between text-xs">
+                      <span className="text-slate-500">
+                        AI Confidence
                       </span>
+
+                      <strong className="text-blue-600">
+                        {selectedComplaint.confidence}%
+                      </strong>
                     </div>
                   )}
                 </div>
 
-                <p className="text-slate-300 text-xs italic bg-slate-950/40 p-2.5 rounded-lg border border-slate-800/50">
-                  "{selectedComplaint.description}"
-                </p>
+                {/* Description */}
+                <div className="mt-4">
+                  <p className="text-sm leading-6 text-slate-600">
+                    {selectedComplaint.description}
+                  </p>
+                </div>
 
-                <div className="grid grid-cols-2 gap-2 pt-1 text-[11px]">
-                  <div className="rounded-lg bg-slate-950/40 p-2 border border-slate-800/40">
-                    <span className="text-slate-500 block">Department</span>
-                    <span className="font-medium text-slate-200 line-clamp-1">
+                {/* Meta */}
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <span className="block text-[10px] uppercase tracking-wide text-slate-400">
+                      Department
+                    </span>
+
+                    <span className="mt-1 block truncate text-xs font-bold text-slate-700">
                       {selectedComplaint.department}
                     </span>
                   </div>
-                  <div className="rounded-lg bg-slate-950/40 p-2 border border-slate-800/40">
-                    <span className="text-slate-500 block">Reported Date</span>
-                    <span className="font-medium text-slate-200">
-                      {new Date(selectedComplaint.createdAt).toLocaleDateString()}
+
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <span className="block text-[10px] uppercase tracking-wide text-slate-400">
+                      Reported
+                    </span>
+
+                    <span className="mt-1 block text-xs font-bold text-slate-700">
+                      {new Date(
+                        selectedComplaint.createdAt
+                      ).toLocaleDateString()}
                     </span>
                   </div>
                 </div>
-              </div>
 
-              {/* Action */}
-              <div className="mt-5 space-y-2">
                 {onSelectComplaintForVerification && (
                   <button
                     onClick={() => {
-                      onSelectComplaintForVerification(selectedComplaint);
+                      onSelectComplaintForVerification(
+                        selectedComplaint
+                      );
                       onNavigate('verification');
                     }}
-                    className="flex w-full items-center justify-center space-x-2 rounded-xl bg-cyan-500/20 py-2.5 px-4 text-xs font-bold text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/30 transition-colors"
+                    className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-xs font-bold text-white transition hover:bg-blue-700"
                   >
-                    <span>Audit Cryptographic Verification</span>
+                    Inspect AI Verification
                     <ExternalLink className="h-3.5 w-3.5" />
                   </button>
                 )}
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 text-center text-slate-400">
-              <Compass className="h-8 w-8 mx-auto text-slate-600 mb-2" />
-              <p className="text-xs">Select any marker on the map to inspect defect ledger details.</p>
-            </div>
-          )}
+              </section>
+            ) : (
+              <section className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+                <Compass className="mx-auto h-9 w-9 text-slate-300" />
 
-          {/* Quick List of Active Complaints */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
-              Nearby Active Incidents ({complaints.length})
-            </h4>
-            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-              {complaints.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => setSelectedComplaint(c)}
-                  className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-center justify-between ${
-                    selectedComplaint?.id === c.id
-                      ? 'border-cyan-500/50 bg-cyan-950/30'
-                      : 'border-slate-800/80 bg-slate-950/40 hover:bg-slate-800/50'
-                  }`}
-                >
-                  <div className="min-w-0 pr-2">
-                    <div className="flex items-center space-x-1.5">
-                      <span className="text-[10px] font-mono text-cyan-400 font-bold">
+                <h3 className="mt-4 text-sm font-bold text-slate-900">
+                  Select a map marker
+                </h3>
+
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  Choose an incident to inspect its location,
+                  severity and verification information.
+                </p>
+              </section>
+            )}
+
+            {/* Active incidents */}
+            <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Active Incidents
+                </h3>
+
+                <span className="rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500">
+                  {complaints.length}
+                </span>
+              </div>
+
+              <div className="max-h-64 space-y-2 overflow-y-auto">
+                {complaints.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => setSelectedComplaint(c)}
+                    className={`flex w-full items-center justify-between rounded-xl border p-3 text-left transition ${
+                      selectedComplaint?.id === c.id
+                        ? 'border-blue-200 bg-blue-50'
+                        : 'border-slate-100 bg-slate-50 hover:border-slate-200 hover:bg-white'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <span className="font-mono text-[10px] font-bold text-blue-600">
                         {c.id}
                       </span>
-                      <span className="text-[10px] text-slate-500">
+
+                      <p className="mt-0.5 truncate text-xs font-bold text-slate-800">
+                        {c.location.road}
+                      </p>
+
+                      <p className="mt-0.5 text-[10px] text-slate-400">
                         {c.severity}
-                      </span>
+                      </p>
                     </div>
-                    <div className="text-xs font-medium text-white truncate">
-                      {c.location.road}
-                    </div>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-slate-500 shrink-0" />
-                </button>
-              ))}
-            </div>
+
+                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                  </button>
+                ))}
+              </div>
+            </section>
           </div>
         </div>
       </div>
